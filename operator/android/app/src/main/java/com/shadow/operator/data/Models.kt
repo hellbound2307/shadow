@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import java.time.Instant
 
 @Entity(tableName = "implants",
-    indices = [Index(value = ["implantId"], unique = true)]
+    indices = [Index(value = ["implant_id"], unique = true)]
 )
 data class ImplantEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

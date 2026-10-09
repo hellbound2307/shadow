@@ -84,7 +84,8 @@ app.get('/modules/:architecture/:name', async (c) => {
   const name = c.req.param('name');
   const arch = c.req.param('architecture');
   
-  const object = await c.env.STORAGE.get(`modules/${arch}/${name}.so`);
+  // R2 keys already include the .so extension — don't append it
+  const object = await c.env.STORAGE.get(`modules/${arch}/${name}`);
   if (!object) return c.notFound();
 
   const headers = new Headers();
