@@ -20,6 +20,11 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Decode Keystore
+        run: |
+          mkdir -p operator/android/keystore
+          echo "${{ secrets.OPERATOR_KEYSTORE_BASE64 }}" | base64 -d > operator/android/keystore/operator.jks
+
       - name: Build Operator APK
         run: |
           cd operator/android
