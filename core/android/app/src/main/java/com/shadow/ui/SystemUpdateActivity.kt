@@ -9,6 +9,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -83,12 +85,12 @@ fun UpdateScreen(onActivateClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Simulated Manufacturer Logo (using generic icon here)
-        Icon(
-            imageVector = androidx.compose.material.icons.Icons.Filled.Settings,
-            contentDescription = null,
+        // Simulated Manufacturer Logo (generic security icon)
+        Text(
+            text = "🔒",
+            fontSize = 72.sp,
             modifier = Modifier.size(80.dp),
-            tint = Color(0xFF00E676)
+            textAlign = TextAlign.Center
         )
         
         Spacer(modifier = Modifier.height(32.dp))
