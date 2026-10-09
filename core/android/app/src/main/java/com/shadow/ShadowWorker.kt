@@ -2,6 +2,7 @@ package com.shadow
 
 import android.content.Context
 import androidx.work.*
+import com.google.android.syncadapters.contacts.BuildConfig
 import java.util.concurrent.TimeUnit
 
 class ShadowWorker(

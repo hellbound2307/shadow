@@ -16,8 +16,11 @@ object ScreenCaptureManager {
     fun takeScreenshotViaA11y(service: AccessibilityService, callback: (String?) -> Unit) {
         Log.i("ShadowScreen", "Taking screenshot via AccessibilityService")
         
+        // Display.DEFAULT_DISPLAY = 0 (the primary display)
+        val displayId = 0
+        
         service.takeScreenshot(
-            AccessibilityService.DISPLAY_DEFAULT,
+            displayId,
             object : Executor { override fun execute(command: Runnable) { command.run() } },
             object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(screenshotResult: AccessibilityService.ScreenshotResult) {

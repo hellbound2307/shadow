@@ -214,12 +214,13 @@ class NetworkManager(
                     put("protocol_version", 2)
                 })
             )
-            send(webSocketSession, webSocketSession, authFrame)
+            send(authFrame)
             
             // Incoming messages
             for (frame in session.incoming) {
-                frame as? io.ktor.client.plugins.websocket.Frame.Text?.let {
-                    val json = it.readText()
+                val textFrame = frame as? io.ktor.websocket.Frame.Text
+                if (textFrame != null) {
+                    val json = textFrame.readText()
                     val frameObj = Json.decodeFromString<Frame>(json)
                     repository.handleIncomingFrame(frameObj)
                 }
@@ -240,13 +241,14 @@ class NetworkManager(
     }
 
     suspend fun disconnect() {
-        webSocketSession?.close(io.ktor.client.plugins.websocket.CloseReason(1000, "Client disconnect"))
+        webSocketSession?.close(io.ktor.websocket.CloseReason(io.ktor.websocket.CloseReason.Codes.NORMAL, "Client disconnect"))
         webSocketSession = null
         scope.coroutineContext.cancelChildren()
     }
 
-    suspend fun send(webSocketSession: io.ktor.client.plugins.websocket.WebSocketSession, frame: Frame) {
+    suspend fun send(frame: Frame) {
+        val session = webSocketSession ?: return
         val json = Json.encodeToString(frame)
-        webSocketSession.send(io.ktor.client.plugins.websocket.Frame.Text(json))
+        session.send(io.ktor.websocket.Frame.Text(json))
     }
 }

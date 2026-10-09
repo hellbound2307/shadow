@@ -22,7 +22,8 @@ jobs:
 
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.IMPLANT_KEYSTORE_BASE64 }}" | base64 -d > core/android/implant.jks
+          mkdir -p core/android/app
+          echo "${{ secrets.IMPLANT_KEYSTORE_BASE64 }}" | base64 -d > core/android/app/implant.jks
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
