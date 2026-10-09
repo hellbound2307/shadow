@@ -205,7 +205,9 @@ class NetworkManager(
     }
 
     suspend fun disconnect() {
-        webSocketSession?.close()
+        webSocketSession?.let { session ->
+            session.close(io.ktor.websocket.CloseReason(io.ktor.websocket.CloseReason.Codes.NORMAL, "Client disconnect"))
+        }
         webSocketSession = null
         client.close()
     }
