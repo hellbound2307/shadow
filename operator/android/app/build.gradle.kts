@@ -54,6 +54,10 @@ android {
         freeCompilerArgs += "-Xopt-in=kotlin.RequiresOptIn"
     }
 
+    buildFeatures {
+        compose = true
+    }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
