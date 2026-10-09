@@ -8,5 +8,5 @@ name = "shadow_crypto"
 crate-type = ["cdylib"]
 
 [dependencies]
-shadow-core = { path = "../../core" }
+shadow = { package = "shadow-core", path = "../../core" }
 anyhow = "1.0"
