@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [lib]
 name = "shadow"
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "time", "sync", "io-std", "process", "signal", "net", "fs"] }
