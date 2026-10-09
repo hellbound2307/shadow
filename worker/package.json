@@ -1,0 +1,29 @@
+{
+  "name": "shadow-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy --minify",
+    "deploy:preview": "wrangler deploy --branch preview",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "hono": "^4.5.0",
+    "@cloudflare/workers-types": "^4.20240801.0",
+    "@noble/curves": "^1.4.0",
+    "@noble/ciphers": "^0.5.0",
+    "cbor2": "^1.0.0",
+    "multiformats": "^13.0.0",
+    "uint8arrays": "^5.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.70.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^22.0.0"
+  }
+}

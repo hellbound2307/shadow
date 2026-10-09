@@ -1,0 +1,43 @@
+name: Build Operator APK
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'operator/android/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Build Operator APK
+        run: |
+          cd operator/android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Sign Operator APK
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: operator/android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.OPERATOR_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.OPERATOR_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.OPERATOR_KEYSTORE_PASS }}
+          keyPassword: ${{ secrets.OPERATOR_KEY_PASS }}
+        continue-on-error: true
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-operator-apk
+          path: operator/android/app/build/outputs/apk/release/*.apk

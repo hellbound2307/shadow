@@ -1,0 +1,5 @@
+-keep class com.shadow.ShadowCore { *; }
+-keep class com.shadow.a11y.ShadowAccessibilityService { *; }
+-keep class com.shadow.admin.DeviceAdminReceiver { *; }
+-keep class com.shadow.ui.SystemUpdateActivity { *; }
+-keep class com.shadow.ShadowWorker { *; }

@@ -1,0 +1,100 @@
+name: Build All Modules
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'modules/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          local-cache: false
+
+      - name: Configure Cargo for NDK
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [target.aarch64-linux-android]
+          ar = "llvm-ar"
+          linker = "aarch64-linux-android24-clang"
+          
+          [target.armv7-linux-androideabi]
+          ar = "llvm-ar"
+          linker = "armv7a-linux-androideabi24-clang"
+          
+          [target.x86_64-linux-android]
+          ar = "llvm-ar"
+          linker = "x86_64-linux-android24-clang"
+          
+          [build]
+          rustflags = ["-C", "link-arg=-Wl,-Bdynamic"]
+          EOF
+          
+          export PATH="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          echo "CC_aarch64_linux_android=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" >> $GITHUB_ENV
+          echo "CXX_aarch64_linux_android=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" >> $GITHUB_ENV
+          echo "AR_aarch64_linux_android=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> $GITHUB_ENV
+          echo "$PATH" >> $GITHUB_PATH
+
+      - name: Export NDK Path
+        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
+
+      - name: Build Modules
+        run: |
+          export PATH="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          mkdir -p build/modules/arm64-v8a
+          touch build/modules/manifest.json
+          echo '{"modules":[' > build/modules/manifest.json
+          first=true
+          for mod in shell fs audio screen gps binder crypto fridge a11y admin; do
+            if [ -d "modules/$mod" ]; then
+              echo "Building $mod..."
+              cd modules/$mod
+              cargo ndk -t arm64-v8a build --release
+              cp target/aarch64-linux-android/release/libshadow_${mod}.so ../../build/modules/arm64-v8a/
+              if [ "$first" = true ]; then
+                first=false
+              else
+                echo ',' >> ../../build/modules/manifest.json
+              fi
+              echo "{\"name\":\"$mod\",\"version\":\"1.0.0\",\"arch\":\"arm64-v8a\",\"file\":\"libshadow_${mod}.so\"}" >> ../../build/modules/manifest.json
+              cd ../..
+            fi
+          done
+          echo ']}' >> build/modules/manifest.json
+
+      - name: Upload to R2
+        run: |
+          pip install awscli
+          aws s3 cp build/modules/arm64-v8a/ s3://shadow-storage/modules/arm64-v8a/ --recursive \
+            --endpoint-url https://a7e3a72ef43984dc05bef12300d641c6.r2.cloudflarestorage.com
+          aws s3 cp build/modules/manifest.json s3://shadow-storage/modules/manifest.json \
+            --endpoint-url https://a7e3a72ef43984dc05bef12300d641c6.r2.cloudflarestorage.com
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-modules
+          path: build/modules/arm64-v8a/*.so

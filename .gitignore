@@ -1,0 +1,25 @@
+# Rust
+target/
+Cargo.lock
+
+# Gradle
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Keystore (never commit!)
+*.jks
+*.keystore
+
+# Generated keys
+generated_keys/
+
+# OS
+.DS_Store
+Thumbs.db
+worker/node_modules/
