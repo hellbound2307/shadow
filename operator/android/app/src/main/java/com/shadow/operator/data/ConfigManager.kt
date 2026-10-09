@@ -50,8 +50,9 @@ class ConfigManager(private val context: Context) {
 }
 
 data class ClientConfig(
-    var workerUrl: String = "wss://shadow.yourdomain.com",
+    var workerUrl: String = "wss://shadow-worker.marwannaili-23-07.workers.dev",
     var operatorPubKey: String = "",
+    var operatorPrivKey: String = "", // Ed25519 private key (hex) for signing RPC commands
     var moduleSigningPubKey: String = "",
     var transportPubKey: String = "",
     var autoReconnect: Boolean = true,

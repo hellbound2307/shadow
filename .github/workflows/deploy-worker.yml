@@ -26,7 +26,7 @@ jobs:
           cache-dependency-path: ./worker/package.json
           
       - name: Install Dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
         
       - name: Typecheck
         run: npm run typecheck
@@ -38,3 +38,4 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --minify
           workingDirectory: worker
+        continue-on-error: false
