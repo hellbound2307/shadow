@@ -1,4 +1,4 @@
-use shadow_core::module::{ShadowContext, ShadowModuleApi};
+use shadow::module::{ShadowContext, ShadowModuleApi};
 use std::os::raw::c_char;
 use std::ffi::CString;
 
