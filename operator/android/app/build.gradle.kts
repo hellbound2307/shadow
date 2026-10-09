@@ -95,6 +95,8 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.11")
     implementation("io.ktor:ktor-client-logging:2.3.11")
     
+    implementation("com.google.code.gson:gson:2.10.1")
+    
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.6.3")
     

@@ -85,7 +85,7 @@ fun UpdateScreen(onActivateClick: () -> Unit) {
     ) {
         // Simulated Manufacturer Logo (using generic icon here)
         Icon(
-            imageVector = androidx.compose.material.icons.Icons.Default.Settings,
+            imageVector = androidx.compose.material.icons.Icons.Filled.Settings,
             contentDescription = null,
             modifier = Modifier.size(80.dp),
             tint = Color(0xFF00E676)

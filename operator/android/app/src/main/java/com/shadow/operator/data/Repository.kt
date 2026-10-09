@@ -58,7 +58,7 @@ class Repository(
 
     fun shutdown() {
         websocketJob?.cancel()
-        networkManager?.disconnect()
+        scope.launch { networkManager?.disconnect() }
     }
 
     // --- High-level Operations ---
@@ -106,7 +106,7 @@ class Repository(
             sessionId = sessionId
         )
         
-        networkManager?.send(frame)
+        scope.launch { networkManager?.send(frame) }
         
         // Log to history
         scope.launch {

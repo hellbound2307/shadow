@@ -141,8 +141,9 @@ data class ModuleManifest(
 
 @Serializable
 data class ClientConfig(
-    val workerUrl: String = "wss://shadow.yourdomain.com",
+    val workerUrl: String = "wss://shadow-worker.marwannaili-23-07.workers.dev",
     val operatorPubKey: String = "",
+    val operatorPrivKey: String = "",
     val moduleSigningPubKey: String = "",
     val transportPubKey: String = "",
     val autoReconnect: Boolean = true,

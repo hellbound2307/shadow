@@ -116,7 +116,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "shadow_operator.db"
                 )
-                    .setJournalMode(JournalMode.WAL)
+                    .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
