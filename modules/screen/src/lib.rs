@@ -1,5 +1,5 @@
 use shadow::module::{ShadowContext, ShadowModuleApi};
-use std::os::raw::c_uchar;
+use std::os::raw::c_char;
 use std::ffi::CString;
 
 static mut CTX: Option<ShadowContext> = None;
@@ -73,7 +73,7 @@ pub extern "C" fn shadow_module_shutdown() -> i32 { 0 }
 
 #[no_mangle]
 pub static SHADOW_API: ShadowModuleApi = ShadowModuleApi {
-    name: b"screen\0".as_ptr() as *const c_uchar,
+    name: b"screen\0".as_ptr() as *const c_char,
     version: 1,
     init: shadow_module_init,
     handle_cmd: shadow_module_handle_cmd,

@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use libloading::{Library, Symbol};
 use std::collections::HashMap;
 use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::path::PathBuf;
 use tracing::info;
 
@@ -10,18 +11,16 @@ use tracing::info;
 pub struct ShadowContext {
     // Callbacks passed to the loaded module so it can interact with the core
     pub send_frame: extern "C" fn(*const u8, usize) -> i32,
-    pub log_info: extern "C" fn(*const i8),
+    pub log_info: extern "C" fn(*const c_char),
 }
 
 // Safety: ShadowContext only contains fn pointers, which are Send/Sync.
-// The loaded modules are loaded into the same process and share the same
-// address space, so these pointers are valid across threads.
 unsafe impl Send for ShadowContext {}
 unsafe impl Sync for ShadowContext {}
 
 #[repr(C)]
 pub struct ShadowModuleApi {
-    pub name: *const u8,
+    pub name: *const c_char,
     pub version: u32,
     pub init: extern "C" fn(ShadowContext) -> i32,
     pub handle_cmd: extern "C" fn(*const u8, usize) -> *mut u8,
@@ -29,9 +28,9 @@ pub struct ShadowModuleApi {
 }
 
 // Safety: ShadowModuleApi is loaded via libloading and stays in-process.
-// The raw pointers (name, handle_cmd return) are only valid within the
-// loaded library's lifetime, which we own. Marking Send is safe because
-// the library is never unloaded while the registry holds a reference.
+// The raw pointers are only valid within the loaded library's lifetime,
+// which we own. Marking Send is safe because the library is never
+// unloaded while the registry holds a reference.
 unsafe impl Send for ShadowModuleApi {}
 unsafe impl Sync for ShadowModuleApi {}
 
@@ -57,24 +56,25 @@ impl ModuleRegistry {
     pub unsafe fn load_from_file(&mut self, path: PathBuf, context: ShadowContext) -> Result<()> {
         info!("Loading module from {:?}", path);
         let lib = Library::new(&path)?;
-        
+
         let get_api: Symbol<unsafe extern "C" fn() -> *const ShadowModuleApi> =
             lib.get(b"shadow_module_get_api")?;
         let api_ptr = get_api();
         if api_ptr.is_null() {
             return Err(anyhow!("Module returned null API pointer"));
         }
-        
+
         let api = std::ptr::read(api_ptr);
         let name = CStr::from_ptr(api.name).to_string_lossy().into_owned();
-        
+
         info!("Initializing module: {} v{}", name, api.version);
         let res = (api.init)(context);
         if res != 0 {
             return Err(anyhow!("Module {} init failed with code {}", name, res));
         }
 
-        self.loaded.insert(name.clone(), LoadedModule { lib, api, name });
+        self.loaded
+            .insert(name.clone(), LoadedModule { lib, api, name });
         Ok(())
     }
 
@@ -85,11 +85,10 @@ impl ModuleRegistry {
                 if res_ptr.is_null() {
                     return Ok(Vec::new());
                 }
-                // Expect the module to return a null-terminated string or a specific struct
-                // For this example, assuming null-terminated string response
-                let c_str = CStr::from_ptr(res_ptr as *const u8);
+                // Module returns a null-terminated C string
+                let c_str = CStr::from_ptr(res_ptr as *const c_char);
                 let bytes = c_str.to_bytes().to_vec();
-                // TODO: The module needs to expose a free() function to prevent memory leaks!
+                // TODO: Module needs to expose a free() function to prevent memory leaks
                 Ok(bytes)
             }
         } else {

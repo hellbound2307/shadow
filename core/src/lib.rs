@@ -11,6 +11,7 @@ use crate::module::{ModuleRegistry, ShadowContext};
 use jni::objects::{JClass, JString};
 use jni::JNIEnv;
 use jni::sys::jint;
+use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
@@ -38,9 +39,9 @@ extern "C" fn module_send_frame(data: *const u8, len: usize) -> i32 {
     0
 }
 
-extern "C" fn module_log_info(msg: *const i8) {
+extern "C" fn module_log_info(msg: *const c_char) {
     if !msg.is_null() {
-        let s = unsafe { std::ffi::CStr::from_ptr(msg as *const u8) }.to_string_lossy().into_owned();
+        let s = unsafe { std::ffi::CStr::from_ptr(msg) }.to_string_lossy().into_owned();
         info!("[module] {}", s);
     }
 }
