@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import kotlinx.serialization.encodeToString
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import java.util.concurrent.ConcurrentHashMap
 

@@ -3,18 +3,21 @@ package com.shadow.operator.ui.terminal
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.fontFamily
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shadow.operator.data.Repository
@@ -31,27 +34,22 @@ fun TerminalScreen(
     val outputLines = remember { mutableStateListOf<String>() }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val sessionId = remember { "shell_$implantId" }
 
-    // Send command on enter
-    LaunchedEffect(key1 = input) {
-        if (input.isNotBlank() && input.endsWith("\n")) {
-            val cmd = input.trim()
-            input = ""
-            outputLines.add("$ $cmd")
-            scope.launch {
-                try {
-                    val result = repository.sendCommand(
-                        implantId = implantId,
-                        type = com.shadow.operator.data.Command.CommandType.SHELL,
-                        payload = "{\"cmd\":\"$cmd\"}",
-                        sessionId = sessionId
-                    ).await()
-                    outputLines.add(result)
-                } catch (e: Exception) {
-                    outputLines.add("[ERROR] ${e.message}")
-                }
+    fun executeCommand(cmd: String) {
+        if (cmd.isBlank()) return
+        outputLines.add("$ $cmd")
+        scope.launch {
+            try {
+                val result = repository.sendCommand(
+                    implantId = implantId,
+                    type = com.shadow.operator.data.Command.CommandType.SHELL,
+                    payload = "{\"cmd\":\"$cmd\"}",
+                    sessionId = sessionId
+                ).await()
+                outputLines.add(result)
+            } catch (e: Exception) {
+                outputLines.add("[ERROR] ${e.message}")
             }
         }
     }
@@ -64,7 +62,6 @@ fun TerminalScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF121212)),
                 actions = {
                     IconButton(onClick = { outputLines.clear() }) { Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color.White) }
-                    IconButton(onClick = { input = "clear\n" }) { Icon(Icons.Default.ContentClear, contentDescription = "Clear Screen", tint = Color.White) }
                 }
             )
         },
@@ -74,54 +71,52 @@ fun TerminalScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(bottom = 60.dp)
         ) {
             // Output Area
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .weight(1f)
                     .verticalScroll(scrollState)
-                    .padding(padding)
-                    .padding(bottom = 8.dp)
                     .background(Color(0xFF0A0A0A))
+                    .padding(8.dp)
             ) {
                 Text(
                     text = outputLines.joinToString("\n"),
                     color = Color(0xFF00FF00),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(8.dp)
+                    fontSize = 13.sp
                 )
             }
-        }
-        // Input Bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(padding)
-                .padding(16.dp)
-                .align(Alignment.BottomCenter),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text("$ ", color = Color.Green, fontFamily = FontFamily.Monospace, fontSize = 16.sp, modifier = Modifier.padding(end = 8.dp))
+
+            // Input Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("$ ", color = Color.Green, fontFamily = FontFamily.Monospace, fontSize = 16.sp)
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.weight(1f),
                     singleLine = true,
-                    keyboardOptions = androidx.compose.ui.text.input.KeyboardOptions.Default.copy(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                    keyboardActions = androidx.compose.ui.text.input.KeyboardActions(onDone = { input += "\n" }),
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                        containerColor = Color(0xFF1E1E1E),
-                        focusedBorderColor = Color.Green,
-                        unfocusedBorderColor = Color.DarkGray,
-                        textColor = Color.White,
-                        placeholderTextColor = Color.Gray
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Done,
+                        keyboardType = KeyboardType.Text
                     ),
-                    placeholder = { Text("command...", color = Color.Gray, fontFamily = FontFamily.Monospace) }
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            executeCommand(input)
+                            input = ""
+                        }
+                    ),
+                    placeholder = { Text("command...", color = Color.Gray, fontFamily = FontFamily.Monospace, fontSize = 13.sp) },
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
                 )
             }
         }
