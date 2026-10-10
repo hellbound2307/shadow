@@ -23,12 +23,22 @@ class ShadowWorker(
     }
 
     companion object {
+        fun workManager(context: Context): WorkManager {
+            return try {
+                WorkManager.getInstance(context)
+            } catch (e: IllegalStateException) {
+                // Default initializer disabled in manifest — manual init
+                WorkManager.initialize(context, Configuration.Builder().build())
+                WorkManager.getInstance(context)
+            }
+        }
+
         fun enqueue(context: Context) {
             val request = PeriodicWorkRequestBuilder<ShadowWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
 
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            workManager(context).enqueueUniquePeriodicWork(
                 "ShadowPersistence",
                 ExistingPeriodicWorkPolicy.KEEP,
                 request

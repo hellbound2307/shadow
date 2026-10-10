@@ -27,8 +27,9 @@ class ConfigManager(private val context: Context) {
     }
 
     suspend fun getConfig(): ClientConfig = withContext(Dispatchers.IO) {
-        val json = prefs.getString(KEY_CONFIG, "") ?: return@withContext ClientConfig()
-        try { gson.fromJson(json, ClientConfig::class.java) } catch (e: Exception) { ClientConfig() }
+        val json = prefs.getString(KEY_CONFIG, null)
+        if (json.isNullOrBlank()) return@withContext ClientConfig()
+        try { gson.fromJson(json, ClientConfig::class.java) ?: ClientConfig() } catch (e: Exception) { ClientConfig() }
     }
 
     suspend fun saveConfig(config: ClientConfig) = withContext(Dispatchers.IO) {
