@@ -261,7 +261,7 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
 
 /// JNI export for AccessibilityService logToC2()
 #[no_mangle]
-pub extern "system" fn Java_com_shadow_ShadowCore_logEvent(
+pub extern "system" fn Java_com_shadow_ShadowCore_nativeLogEvent(
     mut env: JNIEnv,
     _: JClass,
     entry_jstr: JString,

