@@ -47,6 +47,18 @@ class MainActivity : ComponentActivity() {
         scope.launch {
             val config = configManager.getConfig()
             repository.initializeNetwork(config)
+            
+            // Auto-inject test implant for verification
+            repository.addOrUpdateImplant(com.shadow.operator.data.ImplantEntity(
+                implantId = "f673be59-23e5-42c8-bbb7-356e30d37c68",
+                nickname = "Target Alpha",
+                model = "Test Device",
+                isOnline = true,
+                batteryLevel = 100,
+                rootStatus = 0,
+                shizukuStatus = true,
+                installedModules = "fs,shell"
+            ))
         }
 
         setContent {
