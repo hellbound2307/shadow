@@ -70,35 +70,48 @@ class Repository(
 
     // --- Command Execution ---
 
-    fun sendCommand(
+    fun sendCommandRaw(
         implantId: String,
-        type: Command.CommandType,
+        typeStr: String,
         payload: String,
         sessionId: String? = null
     ): Deferred<String> {
-        val command = Command(implantId = implantId, type = type, payload = payload)
+        val commandId = java.util.UUID.randomUUID().toString()
         val completer = CompletableDeferred<String>()
-        pendingCommands[command.id] = completer
+        pendingCommands[commandId] = completer
 
-        val frame = Frame(
-            id = command.id,
-            cmd = type.value,
-            payload = payload,
-            sessionId = sessionId
-        )
-
-        scope.launch { networkManager?.send(frame) }
+        scope.launch {
+            val config = configManager.getConfig()
+            val rpcClient = RpcClient(config)
+            val res = rpcClient.sendCommand(implantId, typeStr, payload)
+            if (res != null) {
+                // If we get an immediate reply, resolve it. 
+                // Normally results come back via WS, but if the DO sends an inline error we catch it.
+                if (res.contains("\"error\"")) completer.complete(res)
+            } else {
+                completer.completeExceptionally(Exception("RPC request failed"))
+            }
+        }
 
         scope.launch {
             historyDao.insert(CommandHistoryEntity(
                 implantId = implantId,
-                commandType = type.value,
+                commandType = typeStr,
                 commandPayload = payload,
                 status = "SENT"
             ))
         }
 
         return completer
+    }
+
+    fun sendCommand(
+        implantId: String,
+        type: Command.CommandType,
+        payload: String,
+        sessionId: String? = null
+    ): Deferred<String> {
+        return sendCommandRaw(implantId, type.value, payload, sessionId)
     }
 
     fun handleIncomingFrame(frame: Frame) {

