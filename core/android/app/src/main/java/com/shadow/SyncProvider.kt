@@ -7,10 +7,20 @@ import android.net.Uri
 
 class SyncProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        // Enqueue the worker immediately when the provider is initialized
-        // This is a great stealth persistence mechanism because ContentProviders
-        // are initialized before Application.onCreate() when the app process starts
-        context?.let { ShadowWorker.enqueue(it) }
+        // Enqueue the worker when the provider is initialized.
+        // ContentProviders initialize in manifest order BEFORE androidx.startup's
+        // InitializationProvider, so WorkManager isn't ready yet at this point.
+        // Posting to the main looper defers the enqueue until ALL providers
+        // (including WorkManager's default initializer) have been installed.
+        context?.let { ctx ->
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    ShadowWorker.enqueue(ctx)
+                } catch (e: Exception) {
+                    android.util.Log.w("SyncProvider", "enqueue deferred failed", e)
+                }
+            }
+        }
         return true
     }
 
