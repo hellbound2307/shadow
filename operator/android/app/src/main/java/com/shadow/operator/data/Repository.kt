@@ -41,8 +41,9 @@ class Repository(
         scope.launch { moduleDao.getAll().collect { moduleRegistry.value = it } }
     }
 
-    fun initializeNetwork(config: ClientConfig) {
-        networkManager = NetworkManager(this, config)
+    suspend fun initializeNetwork(config: ClientConfig) {
+        val operatorWsUrl = config.workerUrl.replace("/t/wss/", "/") + "/api/operator/ws"
+        networkManager = NetworkManager(this, config.copy(workerUrl = operatorWsUrl))
         websocketJob = scope.launch { networkManager!!.connect() }
     }
 

