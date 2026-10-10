@@ -28,6 +28,7 @@ impl WsTransport {
         info!("Connecting to WSS: {}", self.url);
 
         let (ws_stream, _) = connect_async(url).await?;
+        info!("WSS CONNECTED: {}", self.url);
         let (mut write, mut read) = ws_stream.split();
 
         let send_task = tokio::spawn(async move {
@@ -51,6 +52,10 @@ impl WsTransport {
                             break;
                         }
                     }
+                    Ok(Message::Close(frame)) => {
+                        info!("WSS server sent Close frame: {:?}", frame);
+                        break;
+                    }
                     Err(e) => {
                         error!("WSS recv error: {}", e);
                         break;
@@ -61,6 +66,7 @@ impl WsTransport {
         });
 
         tokio::try_join!(send_task, recv_task)?;
+        info!("WSS session ended: {}", self.url);
         Ok(())
     }
 }

