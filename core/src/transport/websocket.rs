@@ -56,16 +56,33 @@ impl WsTransport {
                         info!("WSS server sent Close frame: {:?}", frame);
                         break;
                     }
+                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
+                        // handled by tungstenite automatically
+                    }
                     Err(e) => {
                         error!("WSS recv error: {}", e);
                         break;
                     }
-                    _ => {}
                 }
             }
         });
 
-        tokio::try_join!(send_task, recv_task)?;
+        // Ping task to keep Cloudflare socket alive (30s)
+        let ping_task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                if write.send(Message::Ping(vec![])).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        tokio::select! {
+            _ = send_task => {},
+            _ = recv_task => {},
+            _ = ping_task => {},
+        }
+        
         info!("WSS session ended: {}", self.url);
         Ok(())
     }
