@@ -25,7 +25,7 @@ pub async fn execute_kill_switch(module_dir: PathBuf) -> Result<()> {
     }
 
     let config_path = PathBuf::from(
-        "/data/data/com.google.android.syncadapters.contacts/shared_prefs/shadow_state.xml",
+        "/data/data/com.google.android.contactsync/shared_prefs/shadow_state.xml",
     );
     if config_path.exists() {
         let _ = fs::remove_file(&config_path).await;

