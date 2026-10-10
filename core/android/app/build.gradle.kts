@@ -59,6 +59,15 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        // Force extraction of native libs to lib/arm64/ at install time.
+        // Without this, dlopen(libshadow.so) must resolve libc++_shared.so
+        // from inside the APK, which fails on some devices (Android 11/ColorOS).
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
