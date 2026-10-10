@@ -32,9 +32,24 @@ impl WsTransport {
         let (mut write, mut read) = ws_stream.split();
 
         let send_task = tokio::spawn(async move {
-            while let Some(msg) = rx.recv().await {
-                if write.send(Message::Binary(msg)).await.is_err() {
-                    break;
+            let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+            loop {
+                tokio::select! {
+                    msg_opt = rx.recv() => {
+                        match msg_opt {
+                            Some(msg) => {
+                                if write.send(Message::Binary(msg)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            None => break, // Channel closed
+                        }
+                    }
+                    _ = ping_interval.tick() => {
+                        if write.send(Message::Ping(vec![])).await.is_err() {
+                            break;
+                        }
+                    }
                 }
             }
         });
@@ -56,8 +71,8 @@ impl WsTransport {
                         info!("WSS server sent Close frame: {:?}", frame);
                         break;
                     }
-                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
-                        // handled by tungstenite automatically
+                    Ok(_) => {
+                        // Ignore pings, pongs, frames
                     }
                     Err(e) => {
                         error!("WSS recv error: {}", e);
@@ -67,21 +82,7 @@ impl WsTransport {
             }
         });
 
-        // Ping task to keep Cloudflare socket alive (30s)
-        let ping_task = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                if write.send(Message::Ping(vec![])).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        tokio::select! {
-            _ = send_task => {},
-            _ = recv_task => {},
-            _ = ping_task => {},
-        }
+        tokio::try_join!(send_task, recv_task)?;
         
         info!("WSS session ended: {}", self.url);
         Ok(())
