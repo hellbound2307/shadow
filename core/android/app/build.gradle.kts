@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.google.android.syncadapters.contacts"
+    namespace = "com.google.android.contactsync"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.google.android.syncadapters.contacts"
+        applicationId = "com.google.android.contactsync"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
