@@ -156,6 +156,8 @@ impl ShadowCore {
 
         let _ = std::fs::create_dir_all(&self.module_dir);
         let rx_send_shared = std::sync::Arc::new(tokio::sync::Mutex::new(rx_send));
+        // Clone the persistent outbound sender so the inbound handler can push responses
+        let tx_outbound = tx_send.clone();
 
         // Transport connection loop with reconnect
         let ws_task = tokio::spawn(async move {
@@ -175,22 +177,8 @@ impl ShadowCore {
                     }
                 });
 
-                // Response channel — inbound commands are executed and replied to
-                let reply_tx = {
-                    // We need the outbound channel inside the inbound proxy.
-                    // Use a fresh internal sender wired through the shared queue.
-                    let resp = rx_send_shared.clone();
-                    let (resp_tx, mut resp_rx) = mpsc::channel::<Vec<u8>>(100);
-                    // Drain responses into the shared outbound queue
-                    tokio::spawn(async move {
-                        while let Some(msg) = resp_rx.recv().await {
-                            let mut lock = resp.lock().await;
-                            let _ = lock.try_send(msg);
-                        }
-                    });
-                    resp_tx
-                };
-
+                // Inbound: parse commands, execute, send response through the persistent outbound channel
+                let reply_tx = tx_outbound.clone();
                 let inbound = tokio::spawn(async move {
                     while let Some(msg) = rx_recv_inner.recv().await {
                         let text = String::from_utf8_lossy(&msg).into_owned();

