@@ -22,7 +22,7 @@ fn call_bridge_string(method: &str, args: &[JValue]) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let mut env = match vm.attach_current_thread() {
+    let env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -34,10 +34,12 @@ fn call_bridge_string(method: &str, args: &[JValue]) -> String {
         Ok(v) => match v.l() {
             Ok(obj) => {
                 let jstr: JString = obj.into();
-                match env.get_string(&jstr) {
+                // Bind to a local so the JavaStr temporary drops before jstr.
+                let out = match env.get_string(&jstr) {
                     Ok(s) => s.into(),
                     Err(e) => format!("jni: get_string failed: {}", e),
-                }
+                };
+                out
             }
             Err(e) => format!("jni: bad return: {}", e),
         },
@@ -55,7 +57,7 @@ fn call_bridge_bool(method: &str, args: &[JValue]) -> bool {
         Some(v) => v,
         None => return false,
     };
-    let mut env = match vm.attach_current_thread() {
+    let env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(_) => return false,
     };
@@ -96,7 +98,7 @@ pub fn a11y_click_text(needle: &str) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let mut env = match vm.attach_current_thread() {
+    let env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -113,7 +115,7 @@ pub fn a11y_click_id(view_id: &str) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let mut env = match vm.attach_current_thread() {
+    let env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -148,7 +150,7 @@ pub fn query_provider(uri: String, projection: String, limit: i32) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let mut env = match vm.attach_current_thread() {
+    let env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -181,10 +183,11 @@ pub fn query_provider(uri: String, projection: String, limit: i32) -> String {
         Ok(v) => match v.l() {
             Ok(obj) => {
                 let jstr: JString = JObject::from(obj).into();
-                match env.get_string(&jstr) {
+                let out = match env.get_string(&jstr) {
                     Ok(s) => s.into(),
                     Err(e) => format!("jni: get_string failed: {}", e),
-                }
+                };
+                out
             }
             Err(e) => format!("jni: bad return: {}", e),
         },

@@ -7,7 +7,7 @@ use jni::objects::{JClass, JString};
 use jni::JNIEnv;
 use jni::sys::jint;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tracing::{error, info};
