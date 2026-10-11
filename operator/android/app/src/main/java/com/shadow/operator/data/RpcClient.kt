@@ -59,6 +59,17 @@ private fun JsonObject.str(key: String): String? =
 class RpcClient(private val config: ClientConfig) {
     private val gson = Gson()
 
+    /**
+     * Active target id. Defaults to the compiled-in config value but can be
+     * switched at runtime when the operator picks a different implant from the
+     * target list. Reads go through [targetId].
+     */
+    @Volatile
+    var targetId: String = config.implantId
+
+    private val activeTarget: String
+        get() = targetId.ifBlank { config.implantId }
+
     companion object {
         const val TAG = "RpcClient"
         const val TIMEOUT_MS = 15000
@@ -80,7 +91,7 @@ class RpcClient(private val config: ClientConfig) {
             try {
                 // Build with Gson so implantId / command / payload are escaped properly.
                 val env = JsonObject().apply {
-                    addProperty("implantId", config.implantId)
+                    addProperty("implantId", activeTarget)
                     addProperty("command", command)
                     add("payload", JsonParser.parseString(payloadJson))
                 }

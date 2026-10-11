@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,7 +26,9 @@ import com.shadow.operator.data.ClientConfig
 import com.shadow.operator.data.CommandOutcome
 import com.shadow.operator.data.ImplantEvent
 import com.shadow.operator.data.RpcClient
+import com.shadow.operator.data.Target
 import com.shadow.operator.data.TargetStatus
+import com.shadow.operator.data.TargetStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,6 +73,17 @@ fun FleetScreen(
     val scope = rememberCoroutineScope()
     val rpc = remember(config) { RpcClient(config) }
 
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val store = remember { TargetStore(ctx) }
+    val targets = remember { store.load() }
+    var selected by remember {
+        mutableStateOf(store.selectedId().ifBlank { config.implantId })
+    }
+    var showTargets by remember { mutableStateOf(false) }
+
+    // Keep the RPC client pointed at whichever target the operator picked.
+    LaunchedEffect(selected) { rpc.targetId = selected }
+
     var status by remember { mutableStateOf(TargetStatus.EMPTY) }
     var lines by remember { mutableStateOf(listOf<LogLine>()) }
     var inFlight by remember { mutableStateOf(setOf<String>()) }
@@ -84,11 +98,24 @@ fun FleetScreen(
     }
 
     // ---- poll status (and events when live) ----------------------------------
-    LaunchedEffect(config.implantId, liveFeed) {
+    LaunchedEffect(selected, liveFeed) {
         while (true) {
             now = System.currentTimeMillis()
             val s = withContext(Dispatchers.IO) { rpc.getStatus() }
             status = s
+            if (s.connected) {
+                // Remember every implant we ever hear from, so the target
+                // list fills itself instead of being hand-typed.
+                val changed = store.upsert(
+                    targets,
+                    Target(
+                        id = selected,
+                        lastSeen = System.currentTimeMillis(),
+                        lastAddr = s.raw?.get("addr")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                    )
+                )
+                if (changed) store.save(targets)
+            }
             if (liveFeed) {
                 val evts: List<ImplantEvent> = withContext(Dispatchers.IO) { rpc.getEvents() }
                 val fresh = evts.filter { it.ts > lastEventTs }
@@ -172,16 +199,101 @@ fun FleetScreen(
             colors = CardDefaults.cardColors(containerColor = PanelBg),
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onImplantSelect() }
+                .clickable { showTargets = !showTargets }
         ) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("TARGET", color = TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "TARGET",
+                        color = TextDim,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        if (showTargets) "▲" else "▼ ${targets.size}",
+                        color = TextDim,
+                        fontSize = 10.sp
+                    )
+                }
                 Text(
-                    config.implantId.ifBlank { "(no target selected)" },
+                    targets.firstOrNull { it.id == selected }?.display
+                        ?: selected.ifBlank { "(no target selected)" },
                     color = Color.White,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp
                 )
+                if (targets.isNotEmpty()) {
+                    Text(
+                        selected,
+                        color = TextDim,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp
+                    )
+                }
+
+                if (showTargets) {
+                    HorizontalDivider(color = Color(0xFF232B38))
+                    if (targets.isEmpty()) {
+                        Text(
+                            "No targets yet — one is registered on the first successful poll.",
+                            color = TextDim,
+                            fontSize = 11.sp
+                        )
+                    }
+                    targets.sortedByDescending { it.lastSeen }.forEach { t ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    selected = t.id
+                                    store.select(t.id)
+                                    showTargets = false
+                                }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (t.id == selected) "●" else "○",
+                                color = if (t.id == selected) AccentGreen else TextDim,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    t.display,
+                                    color = if (t.id == selected) AccentGreen else Color.White,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    "${t.id.take(8)}…  ${ago(t.lastSeen, now)}   ${if (t.platform.isBlank()) "?" else t.platform}",
+                                    color = TextDim,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    store.remove(targets, t.id)
+                                    if (selected == t.id) selected = targets.firstOrNull()?.id ?: ""
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Forget target",
+                                    tint = AccentRed,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     Stat("heartbeat", when {
                         age < 0 -> "never"
@@ -296,6 +408,17 @@ fun FleetScreen(
 @Composable
 private fun SectionLabel(text: String) {
     Text(text, color = TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+}
+
+private fun ago(ts: Long, now: Long): String {
+    if (ts <= 0L) return "never"
+    val s = (now - ts) / 1000
+    return when {
+        s < 60 -> "just now"
+        s < 3600 -> "${s / 60}m ago"
+        s < 86400 -> "${s / 3600}h ago"
+        else -> "${s / 86400}d ago"
+    }
 }
 
 @Composable
