@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ShadowTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    ShadowApp(rpcClient)
+                    ShadowApp(config, rpcClient)
                 }
             }
         }
@@ -38,13 +38,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ShadowApp(rpc: RpcClient) {
+fun ShadowApp(config: ClientConfig, rpc: RpcClient) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = "fleet") {
         composable("fleet") {
             FleetScreen(
-                rpc = rpc,
+                config = config,
+                onTerminal = { navController.navigate("terminal") },
                 onImplantSelect = { navController.navigate("terminal") },
                 onFileManager = { navController.navigate("files") },
                 onModules = { navController.navigate("modules") }
