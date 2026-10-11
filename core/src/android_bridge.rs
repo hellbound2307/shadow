@@ -22,7 +22,7 @@ fn call_bridge_string(method: &str, args: &[JValue]) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let env = match vm.attach_current_thread() {
+    let mut env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -57,7 +57,7 @@ fn call_bridge_bool(method: &str, args: &[JValue]) -> bool {
         Some(v) => v,
         None => return false,
     };
-    let env = match vm.attach_current_thread() {
+    let mut env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(_) => return false,
     };
@@ -98,7 +98,7 @@ pub fn a11y_click_text(needle: &str) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let env = match vm.attach_current_thread() {
+    let mut env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -115,7 +115,7 @@ pub fn a11y_click_id(view_id: &str) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let env = match vm.attach_current_thread() {
+    let mut env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
@@ -150,7 +150,7 @@ pub fn query_provider(uri: String, projection: String, limit: i32) -> String {
         Some(v) => v,
         None => return "jni: vm not set".into(),
     };
-    let env = match vm.attach_current_thread() {
+    let mut env = match vm.attach_current_thread() {
         Ok(e) => e,
         Err(e) => return format!("jni: attach failed: {}", e),
     };
