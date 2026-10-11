@@ -1,9 +1,11 @@
 package com.shadow.operator.ui.fleet
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -11,59 +13,187 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.shadow.operator.data.ImplantEntity
+import com.shadow.operator.data.RpcClient
+import com.shadow.operator.ui.theme.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FleetScreen(
-    implants: List<ImplantEntity>,
-    connectionState: String,
-    onImplantSelect: (ImplantEntity) -> Unit,
-    onAddImplantClick: () -> Unit
+    rpc: RpcClient,
+    onImplantSelect: () -> Unit,
+    onFileManager: () -> Unit,
+    onModules: () -> Unit
 ) {
+    var status by remember { mutableStateOf<Map<String, Any>?>(null) }
+    var connected by remember { mutableStateOf(false) }
+    var lastHeartbeat by remember { mutableStateOf(0L) }
+    val scope = rememberCoroutineScope()
+
+    // Poll status every 5 seconds
+    LaunchedEffect(Unit) {
+        while (true) {
+            status = rpc.getStatus()
+            connected = (status?.get("connected") as? Boolean) ?: false
+            lastHeartbeat = (status?.get("lastHeartbeat") as? Long) ?: (status?.get("lastHeartbeat") as? Int)?.toLong() ?: 0L
+            delay(5000)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
-                    Column {
-                        Text("SHADOW Fleet", color = Color.White, fontWeight = FontWeight.Bold)
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Status: $connectionState", 
-                            color = if(connectionState == "CONNECTED") Color.Green else Color.Red,
-                            fontSize = 12.sp
+                            "SHADOW",
+                            color = AccentGreen,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "C2",
+                            color = TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF121212)),
                 actions = {
-                    IconButton(onClick = onAddImplantClick) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Implant", tint = Color.White)
+                    // Connection indicator
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(
+                                    if (connected) OnlineGreen else OfflineRed,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (connected) "ONLINE" else "OFFLINE",
+                            color = if (connected) OnlineGreen else OfflineRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        )
                     }
-                    IconButton(onClick = { /* Refresh */ }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
-                    }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = SurfaceDark,
+                    titleContentColor = TextPrimary
+                )
             )
         },
-        containerColor = Color.Black
+        containerColor = BgBlack
     ) { padding ->
-        if (implants.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No implants found. Deploy SHADOW.", color = Color.Gray)
-            }
-        } else {
-            LazyColumn(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Implant card
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxWidth()
+                    .clickable { onImplantSelect() },
+                colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                items(implants, key = { it.implantId }) { implant ->
-                    ImplantCard(implant, onClick = { onImplantSelect(implant) })
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Terminal,
+                                contentDescription = null,
+                                tint = if (connected) AccentGreen else TextSecondary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Target Alpha",
+                                    color = TextPrimary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                                Text(
+                                    "f673be59...",
+                                    color = TextSecondary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                if (connected) "LIVE" else "DEAD",
+                                color = if (connected) OnlineGreen else OfflineRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            if (lastHeartbeat > 0) {
+                                val secs = (System.currentTimeMillis() - lastHeartbeat) / 1000
+                                Text(
+                                    "${secs}s ago",
+                                    color = TextSecondary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Quick action buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        QuickAction(Icons.Default.Terminal, "Shell", AccentGreen) { onImplantSelect() }
+                        QuickAction(Icons.Default.Folder, "Files", AccentAmber) { onFileManager() }
+                        QuickAction(Icons.Default.Extension, "Modules", AccentPurple) { onModules() }
+                    }
+                }
+            }
+
+            // Stats card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "STATS",
+                        color = TextSecondary,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    StatRow("Pending Commands", (status?.get("pendingCommands") as? Int)?.toString() ?: "--")
+                    StatRow("Last Heartbeat", if (lastHeartbeat > 0) "${(System.currentTimeMillis() - lastHeartbeat) / 1000}s ago" else "never")
+                    StatRow("WebSocket", if (connected) "connected" else "disconnected")
                 }
             }
         }
@@ -71,95 +201,41 @@ fun FleetScreen(
 }
 
 @Composable
-fun ImplantCard(implant: ImplantEntity, onClick: () -> Unit) {
+fun QuickAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color, onClick: () -> Unit) {
     Card(
         modifier = Modifier
-            .fillMaxWidth()
+            .weight(1f)
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        shape = RoundedCornerShape(8.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Name + Status
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (implant.isOnline) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = "Status",
-                        tint = if (implant.isOnline) Color(0xFF00E676) else Color.Gray,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = implant.nickname ?: implant.implantId.take(8).uppercase(),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-                
-                // Battery Indicator
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val batteryColor = when {
-                        implant.batteryLevel > 50 -> Color.Green
-                        implant.batteryLevel > 20 -> Color.Yellow
-                        else -> Color.Red
-                    }
-                    Text("${implant.batteryLevel}%", color = batteryColor, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.BatteryFull, contentDescription = "Battery", tint = batteryColor, modifier = Modifier.size(16.dp))
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            // Subtitle: Model + Network
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "${implant.model ?: "Unknown Device"} • Android ${implant.androidVersion ?: "?"}",
-                    color = Color.LightGray,
-                    fontSize = 12.sp
-                )
-                Text(
-                    text = "${implant.networkType ?: "Offline"} • ${implant.countryCode ?: "??"}",
-                    color = Color.LightGray,
-                    fontSize = 12.sp
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            // Capability Badges
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                CapabilityBadge("Root", implant.rootStatus > 1, Color(0xFFE53935))
-                CapabilityBadge("Shizuku", implant.shizukuStatus, Color(0xFF1E88E5))
-                
-                val modCount = implant.installedModules.count { it == ',' } + if(implant.installedModules.length > 2) 1 else 0
-                CapabilityBadge("$modCount Modules", modCount > 0, Color(0xFF8E24AA))
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(4.dp))
+            Text(
+                label,
+                color = TextSecondary,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp
+            )
         }
     }
 }
 
 @Composable
-fun CapabilityBadge(text: String, active: Boolean, activeColor: Color) {
-    Surface(
-        color = if (active) activeColor.copy(alpha = 0.2f) else Color.DarkGray.copy(alpha = 0.3f),
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.padding(end = 4.dp)
+fun StatRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = text,
-            color = if (active) activeColor else Color.Gray,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
+        Text(label, color = TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+        Text(value, color = TextPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
     }
 }

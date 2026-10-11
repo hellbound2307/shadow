@@ -29,7 +29,7 @@ jobs:
         run: |
           cd operator/android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          OPERATOR_PRIV_KEY="${{ secrets.OPERATOR_PRIV_KEY }}" ./gradlew assembleRelease
 
       - name: Sign Operator APK
         uses: r0adkll/sign-android-release@v1

