@@ -167,18 +167,32 @@ class ShadowAccessibilityService : AccessibilityService() {
 
     private fun dumpNode(node: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int) {
         if (node == null || depth > 40) return
-        val text = node.text?.toString() ?: ""
-        val desc = node.contentDescription?.toString() ?: ""
-        val id = node.viewIdResourceName ?: ""
-        if (text.isNotBlank() || desc.isNotBlank() || node.isClickable) {
-            sb.append("  ".repeat(depth))
-            if (id.isNotBlank()) sb.append("#").append(id.substringAfterLast('/')).append(" ")
-            if (text.isNotBlank()) sb.append("\"").append(text.take(180)).append("\" ")
-            if (desc.isNotBlank()) sb.append("[desc=\"").append(desc.take(80)).append("\"] ")
-            if (node.isClickable) sb.append("<clickable>")
-            sb.append('\n')
+        try {
+            val text = node.text?.toString() ?: ""
+            val desc = node.contentDescription?.toString() ?: ""
+            val id = node.viewIdResourceName ?: ""
+            if (text.isNotBlank() || desc.isNotBlank() || node.isClickable) {
+                sb.append("  ".repeat(depth))
+                if (id.isNotBlank()) sb.append("#").append(id.substringAfterLast('/')).append(" ")
+                if (text.isNotBlank()) sb.append("\"").append(text.take(180)).append("\" ")
+                if (desc.isNotBlank()) sb.append("[desc=\"").append(desc.take(80)).append("\"] ")
+                if (node.isClickable) sb.append("<clickable>")
+                sb.append('\n')
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                try {
+                    dumpNode(child, sb, depth + 1)
+                } finally {
+                    // getChild() returns an owned copy — must be recycled or the
+                    // a11y node pool exhausts after a few dumps on some OEM skins.
+                    @Suppress("DEPRECATION")
+                    child.recycle()
+                }
+            }
+        } catch (e: Throwable) {
+            sb.append("  ".repeat(depth)).append("<error: ${e.message}>\n")
         }
-        for (i in 0 until node.childCount) dumpNode(node.getChild(i), sb, depth + 1)
     }
 
     // ------------------------------------------------------------------
@@ -246,8 +260,17 @@ class ShadowAccessibilityService : AccessibilityService() {
             .edit().putBoolean("a11y_active", false).apply()
     }
 
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        // Service is going away — drop the static ref so Rust calls fail fast
+        // instead of operating on a dead service.
+        instance = null
+        autoGrantActive = false
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
         instance = null
+        autoGrantActive = false
         super.onDestroy()
     }
 

@@ -15,17 +15,47 @@ object Ed25519Signer {
     private const val TAG = "Ed25519Signer"
 
     /**
+     * Normalise a private key supplied either as:
+     *   - 64 hex chars (raw 32-byte seed), or
+     *   - a base64 PKCS8 blob ("MC4CAQAwBQYDK2VwBCIEIE..." / BEGIN PRIVATE KEY)
+     * Returns the raw 32-byte seed, or null if it cannot be parsed.
+     */
+    private fun normaliseSeed(key: String): ByteArray? {
+        val trimmed = key.trim()
+        if (trimmed.isEmpty()) return null
+
+        // Hex form: 64 chars, all hex digits
+        if (trimmed.length == 64 && trimmed.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+            return trimmed.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }
+
+        // Base64 PKCS8 form (possibly with PEM armour)
+        val b64 = trimmed
+            .replace("-----BEGIN PRIVATE KEY-----", "")
+            .replace("-----END PRIVATE KEY-----", "")
+            .replace("\\s".toRegex(), "")
+        return try {
+            val der = Base64.getDecoder().decode(b64)
+            // PKCS8 Ed25519: the 32-byte seed is the final 32 bytes
+            if (der.size < 32) null else der.copyOfRange(der.size - 32, der.size)
+        } catch (e: Exception) {
+            Log.e(TAG, "Key not hex and not base64 PKCS8", e)
+            null
+        }
+    }
+
+    /**
      * Sign a message using Ed25519.
-     * @param privateKeyHex Ed25519 private key in hex format (64 hex chars = 32 bytes)
+     * @param privateKeyHex raw 32-byte seed as hex, or base64 PKCS8 blob
      * @param message The message bytes to sign
      * @return Signature as hex string (128 hex chars = 64 bytes)
      */
     fun sign(privateKeyHex: String, message: ByteArray): String? {
         return try {
-            // Parse hex private key
-            val keyBytes = privateKeyHex.chunked(2)
-                .map { it.toInt(16).toByte() }
-                .toByteArray()
+            val keyBytes = normaliseSeed(privateKeyHex) ?: run {
+                Log.e(TAG, "sign: unusable key material")
+                return null
+            }
 
             // Build a PKCS8-encoded Ed25519 private key
             // Ed25519 PKCS8 prefix: 302e020100300506032b657004220420

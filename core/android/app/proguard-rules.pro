@@ -32,6 +32,13 @@
 # Keep ScreenCaptureManager — called from JNI via class lookup
 -keep class com.shadow.screen.ScreenCaptureManager { *; }
 
+# Keep ShadowBridge — Rust calls every method here by exact name via JNI.
+# R8 renaming/stripping this class = ClassNotFoundException on every command.
+-keep class com.shadow.ShadowBridge { *; }
+-keepclassmembers class com.shadow.ShadowBridge {
+    public static *;
+}
+
 # Prevent R8 from stripping the Compose UI (used by SystemUpdateActivity)
 -dontwarn androidx.compose.**
 -keep class androidx.compose.** { *; }

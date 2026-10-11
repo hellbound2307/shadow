@@ -33,7 +33,8 @@ object ShadowBridge {
     }
 
     /** List permissions actually granted to this app (PackageManager, own UID). */
-    fun grantedPermissions(ctx: Context): String {
+    fun grantedPermissions(): String {
+        val ctx = ShadowCore.appContext ?: return "no context"
         return try {
             val pkg = ctx.packageName
             val pm = ctx.packageManager
@@ -51,7 +52,8 @@ object ShadowBridge {
     }
 
     /** Recents dump — "all the rest of the buttons" fodder. */
-    fun runningApps(ctx: Context): String {
+    fun runningApps(): String {
+        val ctx = ShadowCore.appContext ?: return "no context"
         return try {
             val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
             val procs = am.runningAppProcesses ?: emptyList()
