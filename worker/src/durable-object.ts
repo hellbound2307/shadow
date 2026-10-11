@@ -187,9 +187,9 @@ export class ImplantDO extends DurableObject {
     ).toArray();
     for (const row of pending) {
       const frame = JSON.stringify({
-        id: row.id,
-        c: row.command,
-        p: JSON.parse(row.payload || '{}'),
+        id: row.id as string,
+        c: row.command as string,
+        p: JSON.parse(String(row.payload || '{}')),
       });
       ws.send(frame);
       this.ctx.storage.sql.exec(

