@@ -6,7 +6,7 @@
 //! dialogs, granting the perms to our own package.
 
 use jni::objects::{GlobalRef, JObject, JString, JValue};
-use jni::JavaVM;
+use jni::{JNIEnv, JavaVM};
 use std::sync::OnceLock;
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -60,6 +60,31 @@ fn bridge_class() -> Option<&'static GlobalRef> {
     BRIDGE_CLASS.get()
 }
 
+/// Describe the pending Java exception (e.g. "java.lang.NoSuchMethodError: ...")
+/// and clear it so the VM stays usable.
+///
+/// The bare jni error reads only "Java exception was thrown" and hides the cause;
+/// that cost a full debug cycle when queryProvider's signature turned out wrong.
+fn describe_exception(env: &mut JNIEnv) -> String {
+    if !env.exception_check().unwrap_or(false) {
+        return String::new();
+    }
+    let throwable = match env.exception_occurred() {
+        Ok(t) => t,
+        Err(_) => return String::new(),
+    };
+    let text = env
+        .call_method(&throwable, "toString", "()Ljava/lang/String;", &[])
+        .and_then(|v| v.l())
+        .map(JString::from)
+        .and_then(|js| env.get_string(&js).map(|s| String::from(s)));
+    let _ = env.exception_clear();
+    match text {
+        Ok(msg) => format!(" ({})", msg),
+        Err(_) => String::new(),
+    }
+}
+
 /// Call a static String-returning method on com.shadow.ShadowBridge.
 fn call_bridge_string(method: &str, args: &[JValue]) -> String {
     let vm = match VM.get() {
@@ -88,9 +113,8 @@ fn call_bridge_string(method: &str, args: &[JValue]) -> String {
             Err(e) => format!("jni: bad return: {}", e),
         },
         Err(e) => {
-            // Clear the pending Java exception so the VM stays usable.
-            let _ = env.exception_clear();
-            format!("jni: call {} failed: {}", method, e)
+            let detail = describe_exception(&mut env);
+            format!("jni: call {} failed: {}{}", method, e, detail)
         }
     }
 }
@@ -112,7 +136,10 @@ fn call_bridge_bool(method: &str, args: &[JValue]) -> bool {
     match env.call_static_method(class, method, proto_for(method).as_str(), args) {
         Ok(v) => v.z().unwrap_or(false),
         Err(_) => {
-            let _ = env.exception_clear();
+            log::error!(
+                "jni: bridge boolean call failed{}",
+                describe_exception(&mut env)
+            );
             false
         }
     }
@@ -125,6 +152,11 @@ fn proto_for(method: &str) -> String {
             "()Ljava/lang/String;".into()
         }
         "clickByText" | "clickNodeById" => "(Ljava/lang/String;)Z".into(),
+        // ShadowBridge.queryProvider(uri: String, projection: String, limit: Int): String
+        // Without this arm the method fell through to the no-arg default above and
+        // every provider-backed command (contacts, sms, calllog) died with
+        // NoSuchMethodError, reported only as "Java exception was thrown".
+        "queryProvider" => "(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/String;".into(),
         _ => "()Ljava/lang/String;".into(),
     }
 }
@@ -236,8 +268,8 @@ pub fn query_provider(uri: String, projection: String, limit: i32) -> String {
             Err(e) => format!("jni: bad return: {}", e),
         },
         Err(e) => {
-            let _ = env.exception_clear();
-            format!("jni: queryProvider failed: {}", e)
+            let detail = describe_exception(&mut env);
+            format!("jni: queryProvider failed: {}{}", e, detail)
         }
     }
 }

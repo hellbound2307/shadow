@@ -55,3 +55,7 @@
     public static int w(...);
     public static int e(...);
 }
+
+# Reachable only from native code via FindClass/cached GlobalRef, so R8
+# sees no reference and would strip or rename it (and its methods), breaking JNI.
+-keep class com.shadow.ShadowBridge { *; }
