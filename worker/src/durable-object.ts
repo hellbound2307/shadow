@@ -85,15 +85,20 @@ export class ImplantDO extends DurableObject {
    */
   private requeueStale(): void {
     const cutoff = Date.now() - 90_000;
+    // Rows dispatched before sent_at existed have no dispatch timestamp, so fall
+    // back to enqueue time for them; otherwise commands already stuck in 'sent'
+    // at upgrade time would be stranded there forever -- the exact bug this
+    // function exists to fix.
+    const stale = `(sent_at IS NOT NULL AND sent_at < ?) OR (sent_at IS NULL AND queued_at < ?)`;
     this.ctx.storage.sql.exec(
       `UPDATE command_queue SET status = 'pending'
-       WHERE status = 'sent' AND completed_at IS NULL
-         AND sent_at IS NOT NULL AND sent_at < ? AND attempts < 5`, cutoff
+       WHERE status = 'sent' AND completed_at IS NULL AND (${stale}) AND attempts < 5`,
+      cutoff, cutoff
     );
     this.ctx.storage.sql.exec(
       `UPDATE command_queue SET status = 'failed'
-       WHERE status = 'sent' AND completed_at IS NULL
-         AND sent_at IS NOT NULL AND sent_at < ? AND attempts >= 5`, cutoff
+       WHERE status = 'sent' AND completed_at IS NULL AND (${stale}) AND attempts >= 5`,
+      cutoff, cutoff
     );
   }
 
