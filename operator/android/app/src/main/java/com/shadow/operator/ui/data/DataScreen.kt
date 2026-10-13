@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -58,7 +59,7 @@ fun DataScreen(onNavigateBack: () -> Unit) {
                         Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
                         Text(
                             when {
-                                !table.asTable -> "raw output"
+                                !table.isTable -> "raw output"
                                 query.isNotBlank() ->
                                     "${rows.size} of ${table.count} rows - tap a row to copy"
                                 else -> "${table.count} rows - tap a row to copy"
@@ -86,7 +87,7 @@ fun DataScreen(onNavigateBack: () -> Unit) {
         containerColor = BgDark
     ) { pd ->
         Column(Modifier.padding(pd).fillMaxSize()) {
-            if (table.asTable) {
+            if (table.isTable) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -106,7 +107,7 @@ fun DataScreen(onNavigateBack: () -> Unit) {
                 )
             }
 
-            if (table.asTable) {
+            if (table.isTable) {
                 DataTableView(table, rows, onCopyRow = { line ->
                     clipboard.setText(AnnotatedString(line))
                     Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
@@ -119,7 +120,7 @@ fun DataScreen(onNavigateBack: () -> Unit) {
 }
 
 @Composable
-private fun DataTableView(
+private fun ColumnScope.DataTableView(
     table: DataTable,
     rows: List<List<String>>,
     onCopyRow: (String) -> Unit,
@@ -220,3 +221,13 @@ private fun RawView(raw: String) {
         )
     }
 }
+
+// Local palette. Theme.kt only publishes a small shared set, and FleetScreen's
+// richer palette is file-private, so these live here rather than widening the
+// global theme and shifting colours elsewhere in the app.
+private val BgDark = Color(0xFF0A0E14)
+private val SurfaceSunken = Color(0xFF131A24)
+private val BorderSubtle = Color(0xFF22303F)
+private val TextBody = Color(0xFFD9E1EC)
+private val TextFaint = Color(0xFF66707F)
+private val TextDim = Color(0xFF8892A4)
