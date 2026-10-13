@@ -40,8 +40,9 @@ app.get('/t/:transport/:implantId', async (c) => {
   );
 
   if (res.status !== 101) {
+    const detail = await res.text().catch(() => '');
     try { client.close(); } catch { /* already closed */ }
-    return new Response(`Durable Object rejected websocket (${res.status})`,
+    return new Response(`DO rejected websocket: status=${res.status} body=${detail}`,
       { status: 502 });
   }
 

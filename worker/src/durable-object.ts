@@ -96,7 +96,11 @@ export class ImplantDO extends DurableObject {
     // `webSocket` lives on workers-types' WebSocketRequest, not the base Request.
     const server = (request as unknown as { webSocket?: WebSocket }).webSocket;
     if (!server) {
-      return new Response('Missing request.webSocket', { status: 400 });
+      // Diagnostic: tell the Worker exactly what arrived so a handoff regression
+      // is readable from outside instead of guessing from a bare 400.
+      return new Response(
+        `no socket on DO request upgrades=${String(request.headers.get('Upgrade'))}`,
+        { status: 400 });
     }
 
     // Hibernatable: the DO stays stateless between frames and is not billed while idle.
