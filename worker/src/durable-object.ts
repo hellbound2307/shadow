@@ -50,12 +50,50 @@ export class ImplantDO extends DurableObject {
     );
     // Presence must survive hibernation. lastHeartbeat/implantInfo used to be
     // instance fields, so every eviction reset an online implant to "offline".
+    // In-flight tracking, so a command whose implant died *after* receiving it is
+    // retried instead of sitting in 'sent' forever. Added via ALTER because the
+    // table above already exists in deployed DOs and CREATE won't add columns.
+    for (const ddl of [
+      `ALTER TABLE command_queue ADD COLUMN sent_at INTEGER`,
+      `ALTER TABLE command_queue ADD COLUMN attempts INTEGER DEFAULT 0`,
+    ]) {
+      try { this.ctx.storage.sql.exec(ddl); } catch { /* column already present */ }
+    }
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS implant_meta (
         key TEXT PRIMARY KEY,
         value TEXT,
         updated_at INTEGER
       )`
+    );
+  }
+
+  private markSent(id: string): void {
+    this.ctx.storage.sql.exec(
+      `UPDATE command_queue SET status = 'sent', sent_at = ?, attempts = attempts + 1 WHERE id = ?`,
+      Date.now(), id
+    );
+  }
+
+  /**
+   * Re-hand commands that were dispatched but never completed. Cutoff is based on
+   * dispatch time (sent_at), not enqueue time, so a command that waited in the
+   * queue before its first delivery is not instantly re-queued and run twice.
+   * After 5 attempts a command is marked failed rather than looped forever --
+   * some command reliably kills the process, and an infinite retry loop turns one
+   * bad command into permanent unavailability.
+   */
+  private requeueStale(): void {
+    const cutoff = Date.now() - 90_000;
+    this.ctx.storage.sql.exec(
+      `UPDATE command_queue SET status = 'pending'
+       WHERE status = 'sent' AND completed_at IS NULL
+         AND sent_at IS NOT NULL AND sent_at < ? AND attempts < 5`, cutoff
+    );
+    this.ctx.storage.sql.exec(
+      `UPDATE command_queue SET status = 'failed'
+       WHERE status = 'sent' AND completed_at IS NULL
+         AND sent_at IS NOT NULL AND sent_at < ? AND attempts >= 5`, cutoff
     );
   }
 
@@ -95,9 +133,7 @@ export class ImplantDO extends DurableObject {
       p: JSON.parse(String(r.payload || '{}')),
     }));
     for (const c of cmds) {
-      this.ctx.storage.sql.exec(
-        `UPDATE command_queue SET status = 'sent' WHERE id = ?`, c.id
-      );
+      this.markSent(c.id);
     }
     this.setMeta('last_poll', String(Date.now()));
     return Response.json({ cmds });
@@ -107,6 +143,8 @@ export class ImplantDO extends DurableObject {
   // send_command() can resolve it the moment a command is enqueued.
   private handlePoll(request: Request): Response | Promise<Response> {
     const implantId = this.pollImplantId(request);
+    this.requeueStale();
+
     const pending = this.ctx.storage.sql.exec(
       `SELECT COUNT(*) as count FROM command_queue WHERE status = 'pending'`
     ).toArray()[0] as any;
@@ -242,9 +280,7 @@ export class ImplantDO extends DurableObject {
               });
               ws.send(frame);
               sent = true;
-              this.ctx.storage.sql.exec(
-                `UPDATE command_queue SET status = 'sent' WHERE id = ?`, cmdId
-              );
+              this.markSent(cmdId);
               break;
             }
           }
@@ -311,6 +347,9 @@ export class ImplantDO extends DurableObject {
             lastPoll,
             ageSeconds: lastPoll ? Math.round((now - lastPoll) / 1000) : null,
             implantInfo: info,
+            failedCommands: this.ctx.storage.sql.exec(
+              `SELECT COUNT(*) as count FROM command_queue WHERE status = 'failed'`
+            ).toArray()[0]?.count || 0,
             pendingCommands: this.ctx.storage.sql.exec(
               `SELECT COUNT(*) as count FROM command_queue WHERE status IN ('pending','sent')`
             ).toArray()[0]?.count || 0,
@@ -348,9 +387,7 @@ export class ImplantDO extends DurableObject {
         p: JSON.parse(String(row.payload || '{}')),
       });
       ws.send(frame);
-      this.ctx.storage.sql.exec(
-        `UPDATE command_queue SET status = 'sent' WHERE id = ?`, row.id
-      );
+      this.markSent(row.id as string);
     }
   }
 
