@@ -77,6 +77,10 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // Ed25519 signing that works below API 31 (JCA gained Ed25519 only in
+    // Android 12). Lightweight API only -- no JCA provider registration.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+
     // Gson (JSON parsing for RPC)
     implementation("com.google.code.gson:gson:2.10.1")
 }

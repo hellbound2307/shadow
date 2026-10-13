@@ -1,11 +1,9 @@
 package com.shadow.operator.data
 
 import android.util.Log
-import java.security.KeyFactory
-import java.security.PrivateKey
-import java.security.Signature
-import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 
 /**
  * Signs operator RPC commands with Ed25519.
@@ -57,25 +55,18 @@ object Ed25519Signer {
                 return null
             }
 
-            // Build a PKCS8-encoded Ed25519 private key
-            // Ed25519 PKCS8 prefix: 302e020100300506032b657004220420
-            val pkcs8Prefix = byteArrayOf(
-                0x30, 0x2e, 0x02, 0x01, 0x00,
-                0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
-                0x04, 0x22, 0x04, 0x20
-            )
-            val pkcs8Key = pkcs8Prefix + keyBytes
+            // BouncyCastle's lightweight API, deliberately NOT java.security:
+            // JCA only gained Ed25519 in Android 12 (API 31). On API <= 30 every
+            // KeyFactory.getInstance("Ed25519") throws NoSuchAlgorithmException,
+            // which silently disabled the operator on older devices (seen on
+            // Android 11 / API 30 as "signing failed - check OPERATOR_PRIV_KEY
+            // format", a misleading hint because the key itself parses fine).
+            // BC needs no provider registration, so this works from minSdk 24 up.
+            val signer = Ed25519Signer()
+            signer.init(true, Ed25519PrivateKeyParameters(keyBytes, 0))
+            signer.update(message, 0, message.size)
+            val sig = signer.generateSignature()   // raw 64 bytes, what Worker verifies
 
-            val keySpec = PKCS8EncodedKeySpec(pkcs8Key)
-            val keyFactory = KeyFactory.getInstance("Ed25519")
-            val privateKey: PrivateKey = keyFactory.generatePrivate(keySpec)
-
-            val signer = Signature.getInstance("Ed25519")
-            signer.initSign(privateKey)
-            signer.update(message)
-            val sig = signer.sign()
-
-            // Convert to hex
             sig.joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
             Log.e(TAG, "Signing failed", e)
