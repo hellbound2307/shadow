@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shadow.operator.data.ClientConfig
 import com.shadow.operator.data.CommandOutcome
+import com.shadow.operator.data.ResultHolder
 import com.shadow.operator.data.ImplantEvent
 import com.shadow.operator.data.RpcClient
 import com.shadow.operator.data.Target
@@ -55,6 +56,14 @@ private data class LogLine(
     enum class Kind { OK, ERR, INFO, EVENT }
 }
 
+/**
+ * Commands that return a data set rather than a one-line answer. These open the
+ * data screen (searchable, row-per-record) instead of a log line.
+ */
+private val DATA_COMMANDS = setOf(
+    "contacts", "calllog", "sms", "keylog_file", "keylog_list", "perms", "apps"
+)
+
 private data class ActionData(
     val label: String,
     val icon: ImageVector,
@@ -69,6 +78,7 @@ fun FleetScreen(
     onFileManager: () -> Unit,
     onModules: () -> Unit,
     onTerminal: () -> Unit,
+    onData: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val rpc = remember(config) { RpcClient(config) }
@@ -139,10 +149,19 @@ fun FleetScreen(
             val outcome = withContext(Dispatchers.IO) { rpc.executeDetailed(command, payload) }
             inFlight = inFlight - command
             when (outcome) {
-                is CommandOutcome.Ok -> log(LogLine.Kind.OK, label, outcome.output)
+                is CommandOutcome.Ok -> {
+                    if (command in DATA_COMMANDS) {
+                        // A contact list or SMS dump in a one-line log card is
+                        // unreadable; hand it to the data screen instead.
+                        ResultHolder.title = label
+                        ResultHolder.text = outcome.output
+                        onData()
+                    } else {
+                        log(LogLine.Kind.OK, label, outcome.output)
+                    }
+                }
                 is CommandOutcome.Failed -> log(LogLine.Kind.ERR, label, outcome.error)
-                is CommandOutcome.Queued -> log(LogLine.Kind.INFO, label, "queued — implant offline")
-                is CommandOutcome.Timeout -> log(LogLine.Kind.ERR, label, "timeout after ${outcome.waitedMs}ms")
+                is CommandOutcome.Timeout -> log(LogLine.Kind.INFO, label, outcome.display())
                 is CommandOutcome.TransportError -> log(LogLine.Kind.ERR, label, outcome.why)
             }
         }

