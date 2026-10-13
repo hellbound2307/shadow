@@ -24,7 +24,28 @@ app.get('/t/:transport/:implantId', async (c) => {
   const id = c.env.IMPLANT_STATE.idFromName(implantId);
   const stub = c.env.IMPLANT_STATE.get(id);
 
-  return stub.fetch(c.req.raw);
+  // `stub.fetch(c.req.raw)` does NOT deliver a usable socket: a Durable Object
+  // fetch response cannot carry a WebSocket stream back into the Worker, so the
+  // previous code "worked" only by the DO inventing a pair nothing was attached to.
+  // Create the pair here, hand the server half to the DO as a hibernatable socket,
+  // and return the client half to the implant.
+  const pair = new WebSocketPair();
+  const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+
+  const init: RequestInit = { method: 'GET', headers: c.req.raw.headers };
+  (init as Record<string, unknown>).webSocket = server;
+
+  const res = await stub.fetch(
+    new Request(`https://implant-state/${implantId}/${transport}`, init)
+  );
+
+  if (res.status !== 101) {
+    try { client.close(); } catch { /* already closed */ }
+    return new Response(`Durable Object rejected websocket (${res.status})`,
+      { status: 502 });
+  }
+
+  return new Response(null, { status: 101, webSocket: client });
 });
 
 // 2. Operator RPC API (signed with Ed25519)
