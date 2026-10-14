@@ -9,6 +9,5 @@
     android:accountType="com.google.android.phonesync"
     android:userVisible="false"
     android:supportsUploading="false"
-    android:supportsDownloading="false"
     android:isAlwaysSyncable="true"
     android:allowParallelSyncs="false" />
