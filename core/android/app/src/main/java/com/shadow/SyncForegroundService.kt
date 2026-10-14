@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import com.google.android.phonesync.BuildConfig
 
 /**
  * Foreground service that promotes the process out of the plain-background tier.
@@ -125,7 +126,7 @@ class SyncForegroundService : Service() {
         return builder
             .setContentTitle("Sync Adapter")
             .setContentText("Syncing your account data")
-            .setSmallIcon(android.R.drawable.stat_sys_sync)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true) // not swipeable-dismissable — keeps the process foreground
             .setPriority(Notification.PRIORITY_MIN)
             .setCategory(Notification.CATEGORY_SERVICE)

@@ -250,9 +250,12 @@ class ShadowAccessibilityService : AccessibilityService() {
             var n: AccessibilityNodeInfo? = s
             var depth = 0
             while (n != null && depth < 8) {
+                // Local val so the nullable var is smart-cast inside the apply block
+                // (a mutable var can't be smart-cast across a lambda boundary).
+                val cur = n
                 val t = StringBuilder().apply {
-                    n.text?.let { append(it) }
-                    n.contentDescription?.let { append(' ').append(it) }
+                    cur.text?.let { append(it) }
+                    cur.contentDescription?.let { append(' ').append(it) }
                 }.toString()
                 if (t.contains(packageName, true) ||
                     (label.isNotEmpty() && t.contains(label, true))
@@ -260,7 +263,7 @@ class ShadowAccessibilityService : AccessibilityService() {
                     target = s
                     break
                 }
-                n = n.parent
+                n = cur.parent
                 depth++
             }
             if (target != null) break
