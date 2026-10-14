@@ -305,6 +305,11 @@ fun FleetScreen(
                                 store.save(targets)
                                 selected = id
                                 store.select(id)
+                                // Apply immediately: waiting for a LaunchedEffect to fire on the
+                                // new value means any capability screen opened in the meantime --
+                                // or recomposed without this screen mounted -- still carries the
+                                // previous (often dead) target and hangs on "running".
+                                rpc.targetId = id
                                 // Apply immediately. LaunchedEffect(selected) also does
                                 // this, but a screen opened before that effect runs would
                                 // fire its command at the previously selected -- dead --
@@ -323,6 +328,7 @@ fun FleetScreen(
                                 .clickable {
                                     selected = t.id
                                     store.select(t.id)
+                                    rpc.targetId = t.id
                                     showTargets = false
                                 }
                                 .padding(vertical = 8.dp, horizontal = 4.dp),

