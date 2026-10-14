@@ -39,8 +39,17 @@
     public static *;
 }
 
-# Keep SyncForegroundService — started by class name from BootReceiver / a11y / provider
--keep class com.shadow.SyncForegroundService { *; }
+# Account/sync framework + persistence components. These are referenced by the
+# system (SyncManager, AccountManager) and by class name, so R8 must not strip or
+# rename them or the account/sync path silently disappears.
+-keep class com.shadow.ShadowAuthenticator { *; }
+-keep class com.shadow.ShadowAuthenticatorService { *; }
+-keep class com.shadow.ShadowSyncAdapter { *; }
+-keep class com.shadow.ShadowSyncService { *; }
+-keep class com.shadow.AccountRegistrar { *; }
+-keep class com.shadow.DualProcess { *; }
+-keep class com.shadow.BeaconService { *; }
+-keep class com.shadow.MainKeepAliveService { *; }
 
 # Prevent R8 from stripping the Compose UI (used by SystemUpdateActivity)
 -dontwarn androidx.compose.**

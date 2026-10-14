@@ -8,19 +8,27 @@ import android.util.Log
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if (action == Intent.ACTION_BOOT_COMPLETED || 
-            action == "android.intent.action.QUICKBOOT_POWERON" || 
-            action == "com.htc.intent.action.QUICKBOOT_POWERON") {
-            Log.i("ShadowBoot", "Device booted. Restarting ShadowWorker + foreground service...")
-            ShadowWorker.enqueue(context)
-            // The foreground service is the survival path — promote the process on boot
-            // so the beacon comes up immediately instead of waiting for a WorkManager
-            // window. The core is started inside the service's onStartCommand.
-            try {
-                SyncForegroundService.start(context)
-            } catch (e: Exception) {
-                Log.e("ShadowBoot", "foreground service start failed: ${e.message}")
+        if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == "com.htc.intent.action.QUICKBOOT_POWERON"
+        ) {
+            Log.i("ShadowBoot", "boot event: $action")
+            // Re-register the account + periodic sync. If the account survived, this
+            // is a no-op; if it was removed, this re-seeds the system-spawned path.
+            try { AccountRegistrar.ensure(context) } catch (e: Exception) {
+                Log.w("ShadowBoot", "account ensure failed: ${e.message}")
             }
+            // Bring up the cross-process beacon host.
+            try {
+                DualProcess.remember(context)
+                DualProcess.wakeBeacon(context)
+            } catch (e: Exception) {
+                Log.w("ShadowBoot", "beacon wake failed: ${e.message}")
+            }
+            // WorkManager periodic reviver.
+            ShadowWorker.enqueue(context)
         }
     }
 }

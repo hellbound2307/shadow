@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sync adapter descriptor. Binds the account type to the provider authority and
+  declares that this account is syncable. SyncManager reads this to know it may
+  schedule periodic syncs for us — the system-spawned wake path.
+-->
+<sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
+    android:contentAuthority="com.google.android.phonesync"
+    android:accountType="com.google.android.phonesync"
+    android:userVisible="false"
+    android:supportsUploading="false"
+    android:supportsDownloading="false"
+    android:isAlwaysSyncable="true"
+    android:allowParallelSyncs="false" />

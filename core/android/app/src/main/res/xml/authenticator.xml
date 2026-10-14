@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Account authenticator descriptor. accountType matches ShadowAuthenticator.ACCOUNT_TYPE.
+  There is intentionally no icon and no label surface beyond what the system shows for
+  any sync account — the account row in Settings > Accounts is the only visible artifact
+  of this path, and it reads as an ordinary device sync account.
+-->
+<account-authenticator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accountType="com.google.android.phonesync"
+    android:label="@string/app_name"
+    android:smallIcon="@android:drawable/stat_notify_sync"
+    android:icon="@android:drawable/stat_notify_sync" />
