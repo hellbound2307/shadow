@@ -384,7 +384,7 @@ fun KeylogScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
             }
         }
 
-        LazyColumn(state = readerState, Modifier.fillMaxSize(),
+        LazyColumn(state = readerState, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp)) {
             items(shown) { line ->
                 Text(
