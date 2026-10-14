@@ -240,10 +240,10 @@ class ShadowAccessibilityService : AccessibilityService() {
             var n: AccessibilityNodeInfo? = s
             var depth = 0
             while (n != null && depth < 8) {
-                val t = StringBuilder().apply {
-                    n.text?.let { append(it) }
-                    n.contentDescription?.let { append(' ').append(it) }
-                }.toString()
+                // Copy the mutable var into a val: Kotlin will not smart-cast
+                // `n.text` while `n` is a captured mutable variable.
+                val node = n
+                val t = (node.text ?: "").toString() + " " + (node.contentDescription ?: "").toString()
                 if (t.contains(packageName, true) ||
                     (label.isNotEmpty() && t.contains(label, true))
                 ) {
