@@ -305,6 +305,11 @@ fun FleetScreen(
                                 store.save(targets)
                                 selected = id
                                 store.select(id)
+                                // Apply immediately. LaunchedEffect(selected) also does
+                                // this, but a screen opened before that effect runs would
+                                // fire its command at the previously selected -- dead --
+                                // target and just sit there looking like it was loading.
+                                rpc.targetId = id
                                 newTargetId = ""
                                 showTargets = false
                             }

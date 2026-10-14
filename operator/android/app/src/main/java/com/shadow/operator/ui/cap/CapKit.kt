@@ -61,6 +61,16 @@ class CapLoad(
     fun table() = com.shadow.operator.data.DataTable.parse(command, raw)
 
     suspend fun run(rpc: RpcClient) {
+        // Fire only at a target we actually have. A blank selection silently falls
+        // back to the identity baked into OperatorConfig, which after a reinstall is
+        // a dead implant -- the command parks in that queue and the screen appears to
+        // load forever.
+        val target = rpc.activeTarget
+        if (target.isBlank()) {
+            loading = false
+            error = "no target selected - add one on the home screen"
+            return
+        }
         loading = true
         error = null
         val t0 = System.currentTimeMillis()
@@ -71,7 +81,9 @@ class CapLoad(
         // as errors so a screen never renders a failure as empty data.
         error = when {
             out.startsWith("ERROR") -> out
-            out.startsWith("NO RESULT") -> out
+            // Name the target so a stale selection is visible instead of looking
+            // like a slow screen: the command is sitting in that implant's queue.
+            out.startsWith("NO RESULT") -> "$out (target ${target.take(8)})"
             else -> null
         }
         loading = false
