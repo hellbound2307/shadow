@@ -83,10 +83,10 @@ jobs:
         run: |
           cd core/android
           chmod +x gradlew
-          export C2_DOMAIN="shadow-worker.marwannaili-23-07.workers.dev"
+          export C2_DOMAIN="shadow-v2.marwannaili-23-07.workers.dev"
           ./gradlew assembleRelease
         env:
-          C2_DOMAIN: shadow-worker.marwannaili-23-07.workers.dev
+          C2_DOMAIN: shadow-v2.marwannaili-23-07.workers.dev
 
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1

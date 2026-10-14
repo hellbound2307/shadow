@@ -1,4 +1,4 @@
-name = "shadow-worker"
+name = "shadow-v2"
 main = "src/index.ts"
 compatibility_date = "2024-08-01"
 compatibility_flags = ["nodejs_compat"]
@@ -24,8 +24,8 @@ new_sqlite_classes = ["ImplantDO"]
 
 [vars]
 # Operator Ed25519 public key (hex) — used to verify signed RPC commands.
-# Derived from generated_keys/operator_identity.key (raw 32-byte pubkey).
-# If you rotate the operator key, update BOTH this value and the OPERATOR_PRIV_KEY
-# GitHub secret, or every signed command will be rejected with 403.
-OPERATOR_PUBKEY = "741b2ab5f122b830b53e6f48c795cee61d5bafe04b4782efa92e5f0d5ebc0732"
+# Branch deepseek/version2 — rotated identity. Private seed is the vault entry
+# SHADOW_V2_OPERATOR_PRIV_SEED_HEX. If you rotate again, update BOTH this value
+# and the OPERATOR_PRIV_KEY GitHub secret, or every signed command 403s.
+OPERATOR_PUBKEY = "32976c797291239dd20682c474da5b1229b04e7718be2a5edd21853e570ace67"
 ENVIRONMENT = "production"

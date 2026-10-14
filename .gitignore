@@ -24,3 +24,4 @@ generated_keys/
 Thumbs.db
 worker/node_modules/
 core/android/implant.jks
+.branch_keys/

