@@ -17,6 +17,10 @@ import com.shadow.operator.ui.terminal.TerminalScreen
 import com.shadow.operator.ui.filemanager.FileManagerScreen
 import com.shadow.operator.ui.modules.ModuleManagerScreen
 import com.shadow.operator.ui.data.DataScreen
+import com.shadow.operator.ui.cap.ContactsScreen
+import com.shadow.operator.ui.cap.SmsScreen
+import com.shadow.operator.ui.cap.CallLogScreen
+import com.shadow.operator.ui.cap.AccessScreen
 import com.shadow.operator.ui.theme.ShadowTheme
 
 class MainActivity : ComponentActivity() {
@@ -50,7 +54,8 @@ fun ShadowApp(config: ClientConfig, rpc: RpcClient) {
                 onImplantSelect = { navController.navigate("terminal") },
                 onFileManager = { navController.navigate("files") },
                 onModules = { navController.navigate("modules") },
-                onData = { navController.navigate("data") }
+                onData = { navController.navigate("data") },
+                onCapability = { navController.navigate(it) }
             )
         }
         composable("terminal") {
@@ -67,6 +72,18 @@ fun ShadowApp(config: ClientConfig, rpc: RpcClient) {
         }
         composable("data") {
             DataScreen(onNavigateBack = { navController.popBackStack() })
+        }
+        composable("contacts") {
+            ContactsScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
+        }
+        composable("sms") {
+            SmsScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
+        }
+        composable("calllog") {
+            CallLogScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
+        }
+        composable("access") {
+            AccessScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
         }
         composable("modules") {
             ModuleManagerScreen(

