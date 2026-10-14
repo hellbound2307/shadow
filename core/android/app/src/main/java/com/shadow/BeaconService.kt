@@ -40,13 +40,13 @@ class BeaconService : Service() {
     }
 
     private fun bindBackToMain(delayMs: Long = 0L) {
-        val doBind = {
+        val doBind: () -> Unit = {
             runCatching {
                 val intent = Intent().setComponent(
                     ComponentName(packageName, MainKeepAliveService::class.java.name)
                 )
                 applicationContext.bindService(intent, mainConn, Context.BIND_AUTO_CREATE)
-            }
+            }.let { }
         }
         if (delayMs > 0L) {
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(doBind, delayMs)
