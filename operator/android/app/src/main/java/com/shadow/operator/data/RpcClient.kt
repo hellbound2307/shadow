@@ -67,7 +67,12 @@ class RpcClient(private val config: ClientConfig) {
     @Volatile
     var targetId: String = config.implantId
 
-    private val activeTarget: String
+    /**
+     * The identity a call will actually use: the explicit selection, else the
+     * configured default. Public so a screen can show/report which target a command
+     * went to -- without it a stale selection is invisible in the UI.
+     */
+    val activeTarget: String
         get() = targetId.ifBlank { config.implantId }
 
     companion object {

@@ -61,16 +61,10 @@ class CapLoad(
     fun table() = com.shadow.operator.data.DataTable.parse(command, raw)
 
     suspend fun run(rpc: RpcClient) {
-        // Fire only at a target we actually have. A blank selection silently falls
-        // back to the identity baked into OperatorConfig, which after a reinstall is
-        // a dead implant -- the command parks in that queue and the screen appears to
-        // load forever.
+        // Recorded so a timeout can name the identity the call used. Note the
+        // deliberate fallthrough to OperatorConfig's default, so a blank selection is
+        // legitimate on a single-target build -- we report it, we do not block it.
         val target = rpc.activeTarget
-        if (target.isBlank()) {
-            loading = false
-            error = "no target selected - add one on the home screen"
-            return
-        }
         loading = true
         error = null
         val t0 = System.currentTimeMillis()
