@@ -2,6 +2,7 @@ package com.shadow
 
 import android.content.Context
 import android.util.Log
+import java.io.File
 import java.util.UUID
 
 /**
@@ -225,6 +226,90 @@ object ShadowBridge {
             "queryProvider error: ${e.message}"
         }
     }
+
+    /**
+     * Capture a photo from the specified camera (front/back). Returns base64 JPEG.
+     * Uses the hardware camera via Camera2 / the legacy Camera API. Requires the
+     * CAMERA runtime permission (auto-grantable via startAutoGrant). One shot —
+     * opens the camera, grabs a frame, closes it. No preview surface needed on
+     * most devices when the permission is granted.
+     *
+     * @return "b64:..." on success, or an explanatory error string.
+     */
+    @JvmStatic
+    fun snapCamera(which: String): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        return try {
+            val mgr = ctx.getSystemService(Context.CAMERA_SERVICE)
+                as android.hardware.camera2.CameraManager
+            val ids = mgr.cameraIdList
+            if (ids.isEmpty()) return "no camera available"
+            val target = when (which.lowercase()) {
+                "front" -> ids.firstOrNull { id ->
+                    val ch = mgr.getCameraCharacteristics(id)
+                    val facing = ch.get(
+                        android.hardware.camera2.CameraCharacteristics.LENS_FACING
+                    )
+                    facing == android.hardware.camera2.CameraCharacteristics
+                        .LENS_FACING_FRONT
+                }
+                else -> ids.firstOrNull { id ->
+                    val ch = mgr.getCameraCharacteristics(id)
+                    val facing = ch.get(
+                        android.hardware.camera2.CameraCharacteristics.LENS_FACING
+                    )
+                    facing == android.hardware.camera2.CameraCharacteristics
+                        .LENS_FACING_BACK
+                }
+            } ?: ids[0]
+            // The core capture uses the async Camera2 API via a latch. Implemented
+            // in a helper to keep the bridge method simple and synchronous.
+            captureOnePhoto(mgr, target, 2000)
+        } catch (e: SecurityException) {
+            "camera permission not granted — run auto-grant first (${e.message})"
+        } catch (e: Throwable) {
+            "snapCamera error: ${e.message}"
+        }
+    }
+
+    /**
+     * Record audio from the default mic for [ms] milliseconds. Returns base64 AAC.
+     * Requires RECORD_AUDIO (auto-grantable). On devices where MediaRecorder
+     * needs a file, we write to cache and read it back.
+     *
+     * @return "b64:..." on success, or an explanatory error string.
+     */
+    @JvmStatic
+    fun recordAudio(ms: Int): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        val duration = ms.coerceIn(500, 30_000)
+        return try {
+            val file = File.createTempFile("rec", ".m4a", ctx.cacheDir)
+            val rec = android.media.MediaRecorder()
+            rec.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+            rec.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+            rec.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+            rec.setAudioSamplingRate(44100)
+            rec.setAudioEncodingBitRate(128_000)
+            rec.setOutputFile(file.absolutePath)
+            rec.prepare()
+            rec.start()
+            Thread.sleep(duration.toLong())
+            rec.stop()
+            rec.release()
+            val bytes = file.readBytes()
+            file.delete()
+            if (bytes.isEmpty()) return "recorded 0 bytes"
+            val b64 = java.util.Base64.getEncoder().encodeToString(bytes)
+            "b64:$b64"
+        } catch (e: SecurityException) {
+            "mic permission not granted — run auto-grant first (${e.message})"
+        } catch (e: Throwable) {
+            // MediaRecorder stop() can throw if it starts before any data; treat as
+            // empty rather than fatal.
+            "recordAudio error: ${e.message}"
+        }
+    }
 }
 
 /**
@@ -258,5 +343,102 @@ private fun queryUnprojected(
         if (n == 0) "empty: $uri" else "rows=$n\n$sb"
     } catch (e: Throwable) {
         "queryProvider error: ${e.message} (after projection fallback)"
+    }
+}
+
+/**
+ * Capture one still frame from a hardware camera identified by [cameraId],
+ * returning a base64 JPEG, or an error string. Uses the Camera2 API with an
+ * ImageReader and a latch so the bridge method blocks synchronously for up to
+ * [timeoutMs] milliseconds while a frame arrives.
+ *
+ * No preview surface: a still CAPTURE request via ImageReader works without one
+ * on essentially every device with the CAMERA permission granted.
+ */
+private fun captureOnePhoto(
+    mgr: android.hardware.camera2.CameraManager,
+    cameraId: String,
+    timeoutMs: Long,
+): String {
+    val latch = java.util.concurrent.CountDownLatch(1)
+    val result = java.util.concurrent.atomic.AtomicReference<String?>(null)
+    var reader: android.media.ImageReader? = null
+    var device: android.hardware.camera2.CameraDevice? = null
+
+    try {
+        mgr.openCamera(cameraId, object : android.hardware.camera2.CameraDevice.StateCallback() {
+            override fun onOpened(camera: android.hardware.camera2.CameraDevice) {
+                device = camera
+                val w = 1280
+                val h = 720
+                val format = android.graphics.ImageFormat.JPEG
+                reader = android.media.ImageReader.newInstance(w, h, format, 1)
+                // JPEG is delivered as an opaque byte buffer; ImageReader surface is null.
+                reader!!.setOnImageAvailableListener({ r ->
+                    val image = r.acquireLatestImage()
+                    try {
+                        val buf = image.planes[0].buffer
+                        val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+                        result.set("b64:${java.util.Base64.getEncoder().encodeToString(bytes)}")
+                    } catch (e: Throwable) {
+                        result.set("capture error: ${e.message}")
+                    } finally {
+                        image.close()
+                    }
+                    latch.countDown()
+                }, null)
+
+                try {
+                    val session = camera.createCaptureSession(
+                        java.util.Collections.singletonList(reader!!.surface),
+                        object : android.hardware.camera2.CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(s: android.hardware.camera2.CameraCaptureSession) {
+                                try {
+                                    val req = camera.createCaptureRequest(
+                                        android.hardware.camera2.CameraDevice.TEMPLATE_STILL_CAPTURE
+                                    ).apply {
+                                        addTarget(reader!!.surface)
+                                    }.build()
+                                    s.capture(req, null, null)
+                                } catch (e: Throwable) {
+                                    result.set("request error: ${e.message}")
+                                    latch.countDown()
+                                }
+                            }
+                            override fun onConfigureFailed(s: android.hardware.camera2.CameraCaptureSession) {
+                                result.set("session configure failed")
+                                latch.countDown()
+                            }
+                        },
+                        null
+                    )
+                } catch (e: Throwable) {
+                    result.set("session error: ${e.message}")
+                    latch.countDown()
+                }
+            }
+            override fun onDisconnected(camera: android.hardware.camera2.CameraDevice) {
+                camera.close()
+                result.compareAndSet(null, "camera disconnected")
+                latch.countDown()
+            }
+            override fun onError(camera: android.hardware.camera2.CameraDevice, error: Int) {
+                camera.close()
+                result.compareAndSet(null, "camera error $error")
+                latch.countDown()
+            }
+        }, null)
+
+        if (!latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            return "capture timed out"
+        }
+        return result.get() ?: "capture produced no image"
+    } catch (e: SecurityException) {
+        return "camera permission denied"
+    } catch (e: Throwable) {
+        return "captureOnePhoto error: ${e.message}"
+    } finally {
+        device?.close()
+        reader?.close()
     }
 }

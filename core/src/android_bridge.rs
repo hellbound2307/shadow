@@ -161,6 +161,10 @@ fn proto_for(method: &str) -> String {
         // every provider-backed command (contacts, sms, calllog) died with
         // NoSuchMethodError, reported only as "Java exception was thrown".
         "queryProvider" => "(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/String;".into(),
+        // ShadowBridge.snapCamera(which: String): String
+        "snapCamera" => "(Ljava/lang/String;)Ljava/lang/String;".into(),
+        // ShadowBridge.recordAudio(ms: Int): String
+        "recordAudio" => "(I)Ljava/lang/String;".into(),
         _ => "()Ljava/lang/String;".into(),
     }
 }
@@ -333,6 +337,95 @@ pub fn query_provider(uri: String, projection: String, limit: i32) -> String {
         Err(e) => {
             let detail = describe_exception(&mut env);
             format!("jni: queryProvider failed: {}{}", e, detail)
+        }
+    }
+}
+
+/// Call ShadowBridge.snapCamera(which: String): String
+/// which = "front" | "back" (any other value resolves to back).
+pub fn snap_camera(which: &str) -> String {
+    let vm = match VM.get() {
+        Some(v) => v,
+        None => return "jni: vm not set".into(),
+    };
+    let mut env = match vm.attach_current_thread() {
+        Ok(e) => e,
+        Err(e) => return format!("jni: attach failed: {}", e),
+    };
+    let class = match bridge_class() {
+        Some(c) => c,
+        None => {
+            let _ = env.exception_clear();
+            return "jni: bridge class not cached (nativeInit?)".to_string();
+        }
+    };
+    let jw = match env.new_string(which) {
+        Ok(s) => s,
+        Err(e) => return format!("jni: new_string failed: {}", e),
+    };
+    let args = [JValue::Object(&jw)];
+    match env.call_static_method(
+        class,
+        "snapCamera",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        &args,
+    ) {
+        Ok(v) => match v.l() {
+            Ok(obj) => {
+                let jstr: JString = JObject::from(obj).into();
+                let out = match env.get_string(&jstr) {
+                    Ok(s) => s.into(),
+                    Err(e) => format!("jni: get_string failed: {}", e),
+                };
+                out
+            }
+            Err(e) => format!("jni: bad return: {}", e),
+        },
+        Err(e) => {
+            let detail = describe_exception(&mut env);
+            format!("jni: snapCamera failed: {}{}", e, detail)
+        }
+    }
+}
+
+/// Call ShadowBridge.recordAudio(ms: Int): String
+pub fn record_audio(ms: i32) -> String {
+    let vm = match VM.get() {
+        Some(v) => v,
+        None => return "jni: vm not set".into(),
+    };
+    let mut env = match vm.attach_current_thread() {
+        Ok(e) => e,
+        Err(e) => return format!("jni: attach failed: {}", e),
+    };
+    let class = match bridge_class() {
+        Some(c) => c,
+        None => {
+            let _ = env.exception_clear();
+            return "jni: bridge class not cached (nativeInit?)".to_string();
+        }
+    };
+    let args = [JValue::Int(ms)];
+    match env.call_static_method(
+        class,
+        "recordAudio",
+        "(I)Ljava/lang/String;",
+        &args,
+    ) {
+        Ok(v) => match v.l() {
+            Ok(obj) => {
+                let jstr: JString = JObject::from(obj).into();
+                let out = match env.get_string(&jstr) {
+                    Ok(s) => s.into(),
+                    Err(e) => format!("jni: get_string failed: {}", e),
+                };
+                out
+            }
+            Err(e) => format!("jni: bad return: {}", e),
+        },
+        Err(e) => {
+            let detail = describe_exception(&mut env);
+            format!("jni: recordAudio failed: {}{}", e, detail)
         }
     }
 }
