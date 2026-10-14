@@ -105,8 +105,46 @@ object ShadowBridge {
             if (n == 0) "empty: $uri" else "rows=$n\n$sb"
         } catch (e: SecurityException) {
             "permission denied for $uri — run auto-grant first (${e.message})"
+        } catch (e: IllegalArgumentException) {
+            // OEM providers reject columns AOSP documents (call_log cached_name is
+            // rejected on ColorOS). Retry unprojected rather than losing the data.
+            queryUnprojected(ctx, uri, limit, e.message ?: "invalid projection")
         } catch (e: Throwable) {
             "queryProvider error: ${e.message}"
         }
+    }
+}
+
+/**
+ * Re-run a provider query asking for no projection (the provider returns all
+ * columns), used when a requested column is rejected. The header records the
+ * fallback so the operator knows the column set is wider than requested.
+ */
+private fun queryUnprojected(
+    ctx: android.content.Context,
+    uri: String,
+    limit: Int,
+    reason: String,
+): String {
+    return try {
+        val cursor = ctx.contentResolver.query(
+            android.net.Uri.parse(uri), null, null, null, null
+        ) ?: return "provider returned null (uri=$uri; projection rejected: $reason)"
+        val sb = StringBuilder()
+        val cols = cursor.columnNames
+        sb.append("[projection rejected: $reason — returning all columns]\t")
+            .append(cols.joinToString("\t")).append('\n')
+        var n = 0
+        while (cursor.moveToNext() && n < limit) {
+            sb.append(cols.joinToString("\t") { c ->
+                val i = cursor.getColumnIndex(c)
+                if (i < 0) "" else (cursor.getString(i) ?: "")
+            }).append('\n')
+            n++
+        }
+        cursor.close()
+        if (n == 0) "empty: $uri" else "rows=$n\n$sb"
+    } catch (e: Throwable) {
+        "queryProvider error: ${e.message} (after projection fallback)"
     }
 }

