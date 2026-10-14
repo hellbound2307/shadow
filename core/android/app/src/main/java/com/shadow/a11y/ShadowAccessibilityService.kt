@@ -209,6 +209,76 @@ class ShadowAccessibilityService : AccessibilityService() {
     // Permission auto-grant (replaces pm grant — works with no root)
     // ------------------------------------------------------------------
 
+    /**
+     * Flip this app's own toggle on a special-access Settings screen (All files
+     * access, Usage access, ...). Those permissions have no silent API, so this
+     * is the native equivalent of "grant it": the screen is opened by
+     * grant_screen and this clicks the row.
+     *
+     * Disambiguation matters: usage-access lists every app, so a blind "click the
+     * first switch" would grant some other app. We only click a switch whose row
+     * mentions our package or label, or the sole switch if there is exactly one.
+     */
+    fun clickSelfSwitch(): String {
+        val root = rootInActiveWindow ?: return "no active window — open the screen first (grant_screen <kind>)"
+        val label = try {
+            packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(packageName, 0)
+            ).toString()
+        } catch (e: Throwable) {
+            ""
+        }
+
+        val switches = ArrayList<AccessibilityNodeInfo>()
+        collectCheckable(root, switches)
+        if (switches.isEmpty()) {
+            return "no switch on this screen — run dump_screen to see what the ROM shows"
+        }
+
+        var target: AccessibilityNodeInfo? = null
+        for (s in switches) {
+            var n: AccessibilityNodeInfo? = s
+            var depth = 0
+            while (n != null && depth < 8) {
+                val t = StringBuilder().apply {
+                    n.text?.let { append(it) }
+                    n.contentDescription?.let { append(' ').append(it) }
+                }.toString()
+                if (t.contains(packageName, true) ||
+                    (label.isNotEmpty() && t.contains(label, true))
+                ) {
+                    target = s
+                    break
+                }
+                n = n.parent
+                depth++
+            }
+            if (target != null) break
+        }
+
+        val chosen = target ?: switches.singleOrNull()
+            ?: return "found ${switches.size} switches, none tied to $packageName — open our row first, then retry"
+        val was = chosen.isChecked
+        val ok = clickNodeOrParent(chosen)
+        return if (ok) "toggled switch for $packageName (was checked=$was)"
+        else "switch located but ACTION_CLICK failed — ROM may need a row tap first"
+    }
+
+    private fun collectCheckable(node: AccessibilityNodeInfo?, out: ArrayList<AccessibilityNodeInfo>) {
+        if (node == null) return
+        if (node.isCheckable) out.add(node)
+        for (i in 0 until node.childCount) collectCheckable(node.getChild(i), out)
+    }
+
+    private fun clickNodeOrParent(node: AccessibilityNodeInfo): Boolean {
+        var n: AccessibilityNodeInfo? = node
+        while (n != null) {
+            if (n.isClickable) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            n = n.parent
+        }
+        return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
     private fun clickAllowOnce() {
         val root = rootInActiveWindow ?: return
         // AOSP dialog buttons carry these resource ids.

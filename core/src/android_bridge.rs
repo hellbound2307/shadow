@@ -148,10 +148,14 @@ fn call_bridge_bool(method: &str, args: &[JValue]) -> bool {
 /// JNI signatures for the ShadowBridge methods we call.
 fn proto_for(method: &str) -> String {
     match method {
-        "dumpScreen" | "startAutoGrant" | "grantedPermissions" | "runningApps" => {
+        "clickByText" | "clickNodeById" => "(Ljava/lang/String;)Z".into(),
+        // ShadowBridge.openGrantScreen(kind: String): String -- parameterised, so it
+        // must be listed explicitly rather than left to the catch-all below.
+        "openGrantScreen" => "(Ljava/lang/String;)Ljava/lang/String;".into(),
+        "dumpScreen" | "startAutoGrant" | "grantedPermissions" | "runningApps"
+        | "installedApps" | "foregroundApp" | "toggleSelfInSettings" => {
             "()Ljava/lang/String;".into()
         }
-        "clickByText" | "clickNodeById" => "(Ljava/lang/String;)Z".into(),
         // ShadowBridge.queryProvider(uri: String, projection: String, limit: Int): String
         // Without this arm the method fell through to the no-arg default above and
         // every provider-backed command (contacts, sms, calllog) died with
@@ -213,6 +217,65 @@ pub fn granted_permissions() -> String {
 
 pub fn running_apps() -> String {
     call_bridge_string("runningApps", &[])
+}
+
+/// Every installed package. Works on any device with no grant at all, unlike
+/// runningApps which Android 8+ limits to our own process.
+pub fn installed_apps() -> String {
+    call_bridge_string("installedApps", &[])
+}
+
+/// Foreground app via UsageStatsManager (needs the usage-access special
+/// permission, which grant_screen/toggle_grant obtain natively).
+pub fn foreground_app() -> String {
+    call_bridge_string("foregroundApp", &[])
+}
+
+/// Open a special-access Settings screen (allfiles|usage|battery|overlay|notif|a11y|app).
+pub fn open_grant_screen(kind: &str) -> String {
+    let vm = match VM.get() {
+        Some(v) => v,
+        None => return "jni: vm not set".into(),
+    };
+    let mut env = match vm.attach_current_thread() {
+        Ok(e) => e,
+        Err(e) => return format!("jni: attach failed: {}", e),
+    };
+    let class = match bridge_class() {
+        Some(c) => c,
+        None => return "jni: bridge class not cached (nativeInit?)".to_string(),
+    };
+    let jkind = match env.new_string(kind) {
+        Ok(s) => s,
+        Err(e) => return format!("jni: new_string failed: {}", e),
+    };
+    match env.call_static_method(
+        class,
+        "openGrantScreen",
+        proto_for("openGrantScreen").as_str(),
+        &[JValue::Object(&jkind)],
+    ) {
+        Ok(v) => match v.l() {
+            Ok(obj) => {
+                let jstr: JString = obj.into();
+                let out = match env.get_string(&jstr) {
+                    Ok(s) => s.into(),
+                    Err(e) => format!("jni: get_string failed: {}", e),
+                };
+                out
+            }
+            Err(e) => format!("jni: bad return: {}", e),
+        },
+        Err(e) => {
+            let detail = describe_exception(&mut env);
+            format!("jni: openGrantScreen failed: {}{}", e, detail)
+        }
+    }
+}
+
+/// Click this app's own switch on the currently open special-access screen.
+pub fn toggle_grant() -> String {
+    call_bridge_string("toggleSelfInSettings", &[])
 }
 
 // ---------------------------------------------------------------------------

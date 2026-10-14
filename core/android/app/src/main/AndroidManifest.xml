@@ -39,6 +39,18 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
+    <!-- Package + foreground visibility, both granted natively:
+         QUERY_ALL_PACKAGES is an install-time permission (Play restricts it, but
+         the implant is sideloaded), so `apps` lists every package on any device
+         with no user action. PACKAGE_USAGE_STATS is a special-access permission:
+         the only native grant path is Settings > Usage access, which the
+         grant_screen/toggle_grant commands open and click for us. No Shizuku, no
+         appops, no adb in either path. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:name="com.shadow.ShadowApp"
         android:allowBackup="false"
