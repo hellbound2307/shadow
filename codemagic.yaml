@@ -45,7 +45,7 @@ workflows:
           IN=$(ls app/build/outputs/apk/release/*.apk | head -n1)
           OUT=app/build/outputs/apk/release/shadow-implant-signed.apk
           rm -f "$OUT"
-          java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
+          java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-type JKS --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
           java -jar /tmp/apksigner.jar verify -v "$OUT" | head -8
           ls -la "$OUT"
     artifacts:
