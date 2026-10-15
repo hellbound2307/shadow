@@ -25,7 +25,6 @@ workflows:
         script: |
           NDK_LIB=$(find "$HOME/android-sdk" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1)
           if [ -z "$NDK_LIB" ]; then
-            # try the CodeMagic-installed NDK location
             NDK_LIB=$(find "$HOME" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1)
           fi
           echo "libc++_shared: $NDK_LIB"
@@ -36,7 +35,7 @@ workflows:
       - name: Build APK (Gradle signs)
         script: |
           cd core/android
-          # Keystore for the gradle release signing config (reads env vars)
+          # JKS keystore (keytool-native, Gradle reads it directly)
           echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
           export IMPLANT_KEYSTORE_PATH="implant.jks"
           export IMPLANT_KEY_ALIAS="$IMPLANT_KEY_ALIAS"
