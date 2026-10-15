@@ -21,11 +21,13 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file(System.getenv("IMPLANT_KEYSTORE_PATH") ?: "implant.jks")
-            storePassword = System.getenv("IMPLANT_KEYSTORE_PASS") ?: "ShadowImplant2024!"
-            keyAlias = System.getenv("IMPLANT_KEY_ALIAS") ?: "shadow_implant"
-            keyPassword = System.getenv("IMPLANT_KEY_PASS") ?: "ShadowImplant2024!"
+        if (!project.hasProperty("unsigned")) {
+            create("release") {
+                storeFile = file(System.getenv("IMPLANT_KEYSTORE_PATH") ?: "implant.jks")
+                storePassword = System.getenv("IMPLANT_KEYSTORE_PASS") ?: "ShadowImplant2024!"
+                keyAlias = System.getenv("IMPLANT_KEY_ALIAS") ?: "shadow_implant"
+                keyPassword = System.getenv("IMPLANT_KEY_PASS") ?: "ShadowImplant2024!"
+            }
         }
     }
 
@@ -37,7 +39,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (!project.hasProperty("unsigned")) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isDebuggable = true
