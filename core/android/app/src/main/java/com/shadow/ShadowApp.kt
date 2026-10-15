@@ -15,6 +15,14 @@ class ShadowApp : Application() {
         super.onCreate()
         appContext = applicationContext
         installCrashGuard()
+        // Process-start evaluation. Deferred: Application.onCreate always runs
+        // BEFORE a11y's onServiceConnected, so an immediate check would raise the
+        // fallback on every healthy start and retract it a second later.
+        try {
+            com.shadow.KeepAlive.schedule(this, 15_000L, "process start")
+        } catch (e: Exception) {
+            Log.w(TAG, "KeepAlive schedule failed", e)
+        }
     }
 
     /**

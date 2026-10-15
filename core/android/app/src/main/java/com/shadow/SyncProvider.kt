@@ -19,6 +19,13 @@ class SyncProvider : ContentProvider() {
                 } catch (e: Exception) {
                     android.util.Log.w("SyncProvider", "enqueue deferred failed", e)
                 }
+                // Same deferral logic: by the time this runs, WorkManager exists but
+                // a11y may not be bound yet, so still wait before deciding.
+                try {
+                    com.shadow.KeepAlive.schedule(ctx, 20_000L, "provider init")
+                } catch (e: Exception) {
+                    android.util.Log.w("SyncProvider", "KeepAlive deferred failed", e)
+                }
             }
         }
         return true

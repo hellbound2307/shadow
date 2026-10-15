@@ -17,12 +17,23 @@ data class TargetStatus(
     val lastHeartbeatMs: Long,
     val pendingCommands: Int,
     val queuedResults: Int,
+    /**
+     * Whether the implant is holding its accessibility service, as reported in the
+     * heartbeat. Three states, and the null one matters: true = full capability,
+     * false = reachable but UI automation is dead (DEGRADED), null = the implant
+     * never told us (older build, or the beacon is too new) so we must not claim
+     * it is degraded.
+     */
+    val a11y: Boolean?,
     val raw: JsonObject?,
 ) {
     fun ageMs(now: Long): Long = if (lastHeartbeatMs > 0) now - lastHeartbeatMs else -1L
 
+    /** Reachable but degraded: beacon is up, accessibility is not. */
+    val degraded: Boolean get() = connected && a11y == false
+
     companion object {
-        val EMPTY = TargetStatus(false, 0L, 0, 0, null)
+        val EMPTY = TargetStatus(false, 0L, 0, 0, null, null)
     }
 }
 
@@ -203,11 +214,18 @@ class RpcClient(private val config: ClientConfig) {
     suspend fun getStatus(): TargetStatus = withContext(Dispatchers.IO) {
         val resp = rpcRaw("get_status") ?: return@withContext TargetStatus.EMPTY
         val s = resp.getAsJsonObject("status") ?: return@withContext TargetStatus.EMPTY
+        // a11y lives inside implantInfo, which the DO stores verbatim from the
+        // heartbeat. Absent (old implant) must stay null, not false -- otherwise an
+        // update to the operator alone would paint every healthy target DEGRADED.
+        val a11y = s.getAsJsonObject("implantInfo")?.get("a11y")
+            ?.takeIf { !it.isJsonNull }
+            ?.asBoolean
         TargetStatus(
             connected = s.get("connected")?.asBoolean ?: false,
             lastHeartbeatMs = s.num("lastHeartbeat") ?: 0L,
             pendingCommands = (s.num("pendingCommands") ?: 0L).toInt(),
             queuedResults = (s.num("queuedResults") ?: 0L).toInt(),
+            a11y = a11y,
             raw = s,
         )
     }

