@@ -38,7 +38,7 @@ workflows:
           cd core/android
           # Keystore for the gradle release signing config (reads env vars)
           echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
-          export IMPLANT_KEYSTORE_PATH="app/implant.jks"
+          export IMPLANT_KEYSTORE_PATH="implant.jks"
           export IMPLANT_KEY_ALIAS="$IMPLANT_KEY_ALIAS"
           export IMPLANT_KEYSTORE_PASS="$IMPLANT_KEYSTORE_PASS"
           export IMPLANT_KEY_PASS="$IMPLANT_KEY_PASS"
