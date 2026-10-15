@@ -38,11 +38,7 @@ build-implant:
     - ls -la app/build/outputs/apk/release/
     - echo "$IMPLANT_KEYSTORE_BASE64" | base64 -d > app/implant.jks
     - curl -sSL -o /tmp/bt.zip https://dl.google.com/android/repository/build-tools_r34-linux.zip
-    - python3 -c "
-import zipfile
-z=zipfile.ZipFile('/tmp/bt.zip')
-open('/tmp/apksigner.jar','wb').write(z.read([n for n in z.namelist() if n.endswith('apksigner.jar')][0]))
-"
+    - python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/bt.zip'); open('/tmp/apksigner.jar','wb').write(z.read([n for n in z.namelist() if n.endswith('apksigner.jar')][0]))"
     - IN=$(ls app/build/outputs/apk/release/*.apk | head -n1)
     - OUT=app/build/outputs/apk/release/shadow-implant-signed.apk
     - java -jar /tmp/apksigner.jar sign --ks app/implant.jks --ks-key-alias "$IMPLANT_KEY_ALIAS" --ks-pass "pass:$IMPLANT_KEYSTORE_PASS" --key-pass "pass:$IMPLANT_KEY_PASS" --out "$OUT" "$IN"
