@@ -85,13 +85,50 @@ impl PollTransport {
                 }
             }
 
-            // ---- 2. Park a long-poll for commands ----
-            let cmds = match self.poll(&client).await {
-                Ok(cmds) => {
+            // ---- 2. Park a long-poll for commands, still draining outbound ----
+            // The DO holds this poll for ~25s. Draining `rx` MUST happen concurrently
+            // with the park: a result produced after BATCH_WINDOW -- i.e. essentially
+            // every real command, which spawns a thread and does JNI work -- used to
+            // sit in the channel until the poll expired, costing the full 25s window
+            // per command (~27s measured end to end). Only trivially fast commands
+            // like `ls` beat the 250ms window, which is why those alone looked fast.
+            let poll_result = {
+                let poll = self.poll(&client);
+                tokio::pin!(poll);
+                loop {
+                    tokio::select! {
+                        r = &mut poll => break Some(r),
+                        maybe = rx.recv() => {
+                            match maybe {
+                                Some(frame) => {
+                                    outbox.push(String::from_utf8_lossy(&frame).into_owned());
+                                }
+                                // Channel closed: core is shutting down.
+                                None => {
+                                    self.flush(&client, &mut outbox).await;
+                                    break None;
+                                }
+                            }
+                            // Small batch window, then push the result out at once.
+                            while outbox.len() < MAX_BATCH {
+                                match tokio::time::timeout(BATCH_WINDOW, rx.recv()).await {
+                                    Ok(Some(frame)) => outbox
+                                        .push(String::from_utf8_lossy(&frame).into_owned()),
+                                    _ => break,
+                                }
+                            }
+                            self.flush(&client, &mut outbox).await;
+                        }
+                    }
+                }
+            };
+
+            let cmds = match poll_result {
+                Some(Ok(cmds)) => {
                     consecutive_failures = 0;
                     cmds
                 }
-                Err(e) => {
+                Some(Err(e)) => {
                     consecutive_failures += 1;
                     error!("BEACON poll error ({}): {}", consecutive_failures, e);
                     // Let the caller's backoff handle a real outage rather than
@@ -101,6 +138,8 @@ impl PollTransport {
                     }
                     Vec::new()
                 }
+                // rx closed while parked: shut down cleanly.
+                None => return Ok(()),
             };
 
             // ---- 3. Dispatch commands into the existing executor path ----
