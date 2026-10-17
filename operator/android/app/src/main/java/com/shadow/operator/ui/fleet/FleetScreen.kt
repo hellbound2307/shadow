@@ -476,10 +476,16 @@ fun FleetScreen(
                 ActionData("Auto-Grant All", Icons.Default.Lock, AccentGreen, "autogrant"),
                 ActionData("Check Granted", Icons.Default.CheckCircle, AccentAmber, "perms"),
                 ActionData("Dump Screen", Icons.Default.Visibility, AccentPurple, "screen"),
+                ActionData("Live Screen", Icons.Default.ScreenShare, AccentGreen, "live"),
                 ActionData("Running Apps", Icons.Default.Apps, AccentAmber, "apps"),
             ),
             inFlight = inFlight,
-            onRun = { a -> run(a.command, "{}", a.label) }
+            onRun = { a ->
+                // Live Screen opens the viewer; the stream itself is switched on
+                // from inside it (and switched off again on the way out).
+                if (a.command == "live") onCapability("live")
+                else run(a.command, "{}", a.label)
+            }
         )
 
         // ---- files / modules -------------------------------------------------

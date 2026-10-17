@@ -23,6 +23,7 @@ import com.shadow.operator.ui.cap.SmsScreen
 import com.shadow.operator.ui.cap.CallLogScreen
 import com.shadow.operator.ui.cap.KeylogScreen
 import com.shadow.operator.ui.cap.AccessScreen
+import com.shadow.operator.ui.live.LiveScreen
 import com.shadow.operator.ui.theme.ShadowTheme
 
 class MainActivity : ComponentActivity() {
@@ -95,6 +96,9 @@ fun ShadowApp(config: ClientConfig, rpc: RpcClient) {
         }
         composable("keylog") {
             KeylogScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
+        }
+        composable("live") {
+            LiveScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
         }
         composable("access") {
             AccessScreen(rpc = rpc, onNavigateBack = { navController.popBackStack() })
