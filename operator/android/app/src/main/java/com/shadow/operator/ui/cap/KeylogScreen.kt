@@ -89,7 +89,7 @@ fun KeylogScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
         listLoading = true
         listError = null
         val t0 = System.currentTimeMillis()
-        val out = rpc.execute("keylog_list", "{}", 20000)
+        val out = rpc.execute("keylog_list", "{}", 120000)
         listMs = System.currentTimeMillis() - t0
         listRaw = out
         val t = out.trimStart()
@@ -122,7 +122,7 @@ fun KeylogScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
         val out = rpc.execute(
             "fs_read",
             JSONObject().put("path", day.path).toString(),
-            if (appendOnly) 15000 else 30000
+            if (appendOnly) 90000 else 120000
         )
         readLoading = false
         val t = out.trimStart()
@@ -217,7 +217,7 @@ fun KeylogScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
         busy = true
         scope.launch {
             val out = rpc.execute(
-                "fs_delete", JSONObject().put("path", day.path).toString(), 30000
+                "fs_delete", JSONObject().put("path", day.path).toString(), 90000
             )
             Toast.makeText(ctx, out.take(180), Toast.LENGTH_LONG).show()
             confirmDelete = null

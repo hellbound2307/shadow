@@ -68,7 +68,7 @@ class CapLoad(
         loading = true
         error = null
         val t0 = System.currentTimeMillis()
-        val out = rpc.execute(command, payload, 90000)
+        val out = rpc.execute(command, payload, 180000)
         tookMs = System.currentTimeMillis() - t0
         raw = out
         // RpcClient.display() prefixes failures with ERROR/NO RESULT; surface those

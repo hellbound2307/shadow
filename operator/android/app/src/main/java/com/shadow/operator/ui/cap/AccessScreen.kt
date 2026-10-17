@@ -38,7 +38,7 @@ fun AccessScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
     fun send(cmd: String, payload: String, note: String) {
         scope.launch {
             busy = true
-            val out = rpc.execute(cmd, payload, 90000)
+            val out = rpc.execute(cmd, payload, 180000)
             log = "$note → $out"
             busy = false
             Toast.makeText(ctx, out.take(120), Toast.LENGTH_LONG).show()
