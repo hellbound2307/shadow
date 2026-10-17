@@ -201,6 +201,12 @@ pub fn set_screen_stream(on: bool, interval_ms: i32, max_nodes: i32) -> String {
     )
 }
 
+/// Re-arm the accessibility binding (off/on flip of our own entry in
+/// Settings.Secure). See ShadowBridge.fixA11y for why this exists.
+pub fn fix_a11y() -> String {
+    call_bridge_string("fixA11y", &[])
+}
+
 pub fn a11y_click_text(needle: &str) -> String {
     let vm = match VM.get() {
         Some(v) => v,

@@ -45,6 +45,55 @@ object ShadowBridge {
             ?.setScreenStream(on, intervalMs, maxNodes)
             ?: "a11y not active"
 
+    /**
+     * Re-arm our own accessibility binding.
+     *
+     * ColorOS (and several other OEM builds) leave the a11y *setting* enabled
+     * while the service itself is unbound or dead: the row stays green in
+     * Settings, but no events ever arrive again and every a11y-backed command
+     * returns "a11y not active" until the user manually flips the toggle off and
+     * on. [toggleSelfInSettings] cannot help here — it clicks the switch *via*
+     * a11y, so it needs the very service that is down.
+     *
+     * WRITE_SECURE_SETTINGS carries the `development` protection flag, so it can
+     * be granted without root or a system image:
+     *   pm grant <pkg> android.permission.WRITE_SECURE_SETTINGS
+     * That lets us perform the same off/on flip ourselves. AMS only rebinds when
+     * it actually observes a change to the setting, hence the gap between the two
+     * writes rather than a single rewrite of the same string.
+     *
+     * Every other app's a11y entry is preserved — we only add/remove our own.
+     */
+    @JvmStatic
+    fun fixA11y(): String {
+        val ctx = ShadowApp.appContext ?: return "no context"
+        if (ctx.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return "need WRITE_SECURE_SETTINGS — run: pm grant ${ctx.packageName} " +
+                "android.permission.WRITE_SECURE_SETTINGS"
+        }
+        val cr = ctx.contentResolver
+        val key = android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        val me = android.content.ComponentName(ctx, com.shadow.a11y.ShadowAccessibilityService::class.java)
+            .flattenToString()
+        val before = android.provider.Settings.Secure.getString(cr, key) ?: ""
+        val others = before.split(':').filter { it.isNotBlank() && !it.equals(me, true) }
+        return try {
+            android.provider.Settings.Secure.putString(cr, key, others.joinToString(":"))
+            Thread.sleep(600)
+            android.provider.Settings.Secure.putString(cr, key, (others + me).joinToString(":"))
+            Thread.sleep(500)
+            val bound = com.shadow.a11y.ShadowAccessibilityService.instance != null
+            Log.i(TAG, "fixA11y: toggled, instance bound=$bound")
+            if (bound) "a11y re-armed — service is bound again"
+            else "a11y setting rewritten but the service has not rebound yet " +
+                "(AMS may need a moment, or the ROM is suppressing it)"
+        } catch (t: Throwable) {
+            "a11y toggle failed: ${t.message}"
+        }
+    }
+
     /** Open Settings → app permissions and auto-click Allow for all declared perms. */
     @JvmStatic
     fun startAutoGrant(): String {

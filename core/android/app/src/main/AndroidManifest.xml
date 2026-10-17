@@ -6,6 +6,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets fixA11y() flip our own a11y binding back on when the ROM leaves the
+         setting enabled but the service dead. Un-grantable by normal means:
+         `pm grant <pkg> android.permission.WRITE_SECURE_SETTINGS` (the
+         `development` protection flag allows it without root). -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     
     <!-- Required for stealth / background execution -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

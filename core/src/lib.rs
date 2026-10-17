@@ -304,6 +304,9 @@ fn execute_command(cmd: &str, payload: &serde_json::Value) -> Option<String> {
                 .clamp(10, 400) as i32;
             Some(android_bridge::set_screen_stream(on, interval, max_nodes))
         }
+        // Re-arm a dead accessibility binding (OEM ROMs leave the setting on but
+        // the service unbound). Needs WRITE_SECURE_SETTINGS, granted off-device.
+        "fix_a11y" | "rebind_a11y" => Some(android_bridge::fix_a11y()),
         "grant" | "autogrant" => {
             let perm = payload.as_str()
                 .or_else(|| payload.get("permission").and_then(|v| v.as_str()))
