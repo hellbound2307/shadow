@@ -47,11 +47,17 @@ private val AccentPurple = Color(0xFF9D7BFF)
 private val TextDim = Color(0xFF8892A4)
 
 /** One logged line in the operator's activity feed. */
+// Monotonic id so each feed line has a stable identity across recompositions.
+// Positional identity breaks when lines are prepended (which they always are),
+// and an unstable-keyed Column is what corrupts the composer's group stack.
+private var logIdSeq = 0L
+
 private data class LogLine(
     val ts: Long = System.currentTimeMillis(),
     val kind: Kind,
     val title: String,
     val body: String,
+    val id: Long = ++logIdSeq,
 ) {
     enum class Kind { OK, ERR, INFO, EVENT }
 }
@@ -108,7 +114,10 @@ fun FleetScreen(
     var lines by remember { mutableStateOf(listOf<LogLine>()) }
     var inFlight by remember { mutableStateOf(setOf<String>()) }
     var liveFeed by remember { mutableStateOf(true) }
-    var lastEventTs by remember { mutableStateOf(0L) }
+    // Start from *now*, not 0: `fresh` is `ts > lastEventTs`, so 0 matched the
+    // DO's entire event history and dumped 100+ cards into the feed on the first
+    // poll — a 0 -> 100 -> 200 structural explosion ~5s after launch.
+    var lastEventTs by remember { mutableStateOf(System.currentTimeMillis()) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     val scroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
@@ -531,9 +540,11 @@ fun FleetScreen(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 lines.forEach { line ->
-                    LogCard(line) {
-                        clipboard.setText(AnnotatedString(line.body))
-                        log(LogLine.Kind.INFO, "clipboard", "copied ${line.title} (${line.body.length} chars)")
+                    key(line.id) {
+                        LogCard(line) {
+                            clipboard.setText(AnnotatedString(line.body))
+                            log(LogLine.Kind.INFO, "clipboard", "copied ${line.title} (${line.body.length} chars)")
+                        }
                     }
                 }
             }

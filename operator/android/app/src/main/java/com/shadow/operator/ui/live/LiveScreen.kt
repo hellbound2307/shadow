@@ -70,6 +70,11 @@ fun LiveScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
 
+    // Hoisted unconditionally. `remember` behind a conditional early-return lands
+    // in a different group slot depending on which branch ran, which is exactly
+    // the group-stack imbalance that crashes ComposerImpl.end() in Compose 1.6.
+    val nodeScroll = rememberScrollState()
+
     val intervalMs = 1000
     val maxNodes = 150
 
@@ -234,7 +239,7 @@ fun LiveScreen(rpc: RpcClient, onNavigateBack: () -> Unit) {
 
         Spacer(Modifier.height(8.dp))
 
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+        Column(Modifier.verticalScroll(nodeScroll)) {
             f.nodes.forEach { n ->
                 NodeRow(n) { target ->
                     scope.launch {
