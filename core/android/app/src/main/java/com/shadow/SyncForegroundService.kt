@@ -163,7 +163,7 @@ class SyncForegroundService : Service() {
         return builder
             .setContentTitle("Sync Adapter")
             .setContentText("Syncing your account data")
-            .setSmallIcon(android.R.drawable.stat_sys_sync)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .setPriority(Notification.PRIORITY_MIN)
             .setCategory(Notification.CATEGORY_SERVICE)
